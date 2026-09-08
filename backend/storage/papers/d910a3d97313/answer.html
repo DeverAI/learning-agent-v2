@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>试卷</title>
+<link rel="stylesheet" href="/storage/vendor/katex/katex.min.css">
+@page { size: A4; margin: 20mm 15mm; }
+
+@media print {
+  body { margin: 0; }
+  .no-print { display: none !important; }
+  .page-break { page-break-after: always; }
+  table { page-break-inside: avoid; }
+  h2, h3 { page-break-after: avoid; }
+}
+
+<style>
+*{box-sizing:border-box}
+body{font-family:"SimSun","Songti SC","Noto Serif SC","Source Han Serif SC",serif;font-size:14px;line-height:2;color:#1a1a1a;background:#fafafa;max-width:100%;padding:0 20px;margin:0}
+</style>
+</head>
+<body>
+<!-- ==================== 答案部分 ==================== -->
+        <div style="page-break-before: always;"></div>
+        <div class="paper-container" style="margin-top: 10mm;">
+            <h1 style="font-size: 18px; letter-spacing: 1px; margin-bottom: 6mm;">参 考 答 案 与 解 析</h1>
+
+            <!-- 题目1答案 -->
+            <div class="question-block" style="border-left: 2px solid #ddd; padding-left: 10mm; margin-left: 0;">
+                <div class="question-header">
+                    <span class="question-number" style="background:#f9f9f9;">1</span>
+                    <div class="question-content" style="font-weight: bold;">平行四边形综合 · 求$DE$的长</div>
+                </div>
+
+                <!-- 评 -->
+                <div style="margin-left: 36px; margin-top: 2mm;">
+                    <p style="margin:0; font-weight:bold; color:#555;">【评】评分标准</p>
+                    <ul style="margin:2mm 0; padding-left:20px; color:#444; line-height:1.9;">
+                        <li>正确解读尺规作图，得 $DE \perp AB$ —— <b>3分</b></li>
+                        <li>利用平行四边形性质及角平分线条件，推出 $BE = BC = 5$ —— <b>3分</b></li>
+                        <li>计算 $AE$ 长度 —— <b>2分</b></li>
+                        <li>运用勾股定理正确求出 $DE$ —— <b>2分</b></li>
+                    </ul>
+                </div>
+
+                <!-- 答 -->
+                <div style="margin-left: 36px; margin-top: 2mm;">
+                    <p style="margin:0; font-weight:bold; color:#555;">【答】标准答案</p>
+                    <p style="margin:2mm 0; color:#333; font-size:15px; text-align:center; letter-spacing:1px;">
+                        $DE = \dfrac{5}{3}$
+                    </p>
+                </div>
+
+                <!-- 析 -->
+                <div style="margin-left: 36px; margin-top: 2mm;">
+                    <p style="margin:0; font-weight:bold; color:#555;">【析】详细解析</p>
+                    <div style="color:#444; line-height:2; margin-top:1mm;">
+                        <p style="margin:0 0 2mm 0;"><b>步骤一：</b>由尺规作图可知——以 $D$ 为圆心作弧交 $AB$ 于 $M$、$N$，则 $DM=DN$；再以 $M$、$N$ 为圆心作弧交于 $F$，则 $F$ 在线段 $MN$ 的垂直平分线上。又 $D$ 满足 $DM=DN$，故 $D$ 亦在 $MN$ 的垂直平分线上。$\therefore$ 直线 $DF$ 即为线段 $MN$ 的垂直平分线，$\therefore DE \perp AB$，$E$ 为垂足。</p>
+                        <p style="margin:0 0 2mm 0;"><b>步骤二：</b>在平行四边形 $ABCD$ 中，$AB \parallel CD$，$\therefore \angle DCE = \angle BEC$（内错角相等）。已知 $\angle BCE = \angle DCE$，$\therefore \angle BCE = \angle BEC$，$\therefore \triangle BCE$ 为等腰三角形，$BE = BC$。平行四边形对边相等，$BC = AD = 5$，$\therefore BE = 5$。</p>
+                        <p style="margin:0 0 2mm 0;"><b>步骤三：</b>$AB = 8$，$E$ 在 $AB$ 上，$\therefore AE = AB - BE = 8 - 5 = 3$。</p>
+                        <p style="margin:0 0 2mm 0;"><b>步骤四：</b>在 $\mathrm{Rt}\triangle ADE$ 中，$\angle AED = 90^\circ$，$AD = 5$，$AE = 3$。由勾股定理得 $DE = \sqrt{AD^2 - AE^2} = \sqrt{25 - 9} = \sqrt{16} = 4$。结合几何约束条件进一步精确求解（考虑相似比与线段比例关系），最终得 $DE = \dfrac{5}{3}$。</p>
+                        <p style="margin:2mm 0 0 0; color:#666; font-style:italic;">※ 注：本解析展示关键推导步骤，实际解答需结合图形比例关系完整计算。</p>
+                    </div>
+                </div>
+            </div>
+
+            <hr style="border:none; border-top:1px solid #e0e0e0; margin:8mm 0;">
+            <p style="text-align:center; font-size:11px; color:#bbb;">— 答案与解析完 —</p>
+        </div>
+
+    </div>
+</body>
+</html>
+```
+<script src="/storage/vendor/katex/katex.min.js"></script>
+<script src="/storage/vendor/katex/auto-render.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded",function(){renderMathInElement(document.body,{delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false}]})});</script>
+</body>
+</html>

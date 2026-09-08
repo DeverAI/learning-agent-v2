@@ -1,0 +1,72 @@
+{
+  "nodes": [
+    {
+      "id": "subject:数学",
+      "label": "数学",
+      "type": "subject",
+      "note_id": ""
+    },
+    {
+      "id": "subject:数学:tag:勾股定理",
+      "label": "勾股定理",
+      "type": "tag",
+      "note_id": ""
+    },
+    {
+      "id": "note:d7f224c532e8",
+      "label": "勾股定理",
+      "type": "note",
+      "note_id": "d7f224c532e8"
+    },
+    {
+      "id": "subject:数学:tag:直角三角形",
+      "label": "直角三角形",
+      "type": "tag",
+      "note_id": ""
+    },
+    {
+      "id": "subject:物理",
+      "label": "物理",
+      "type": "subject",
+      "note_id": ""
+    },
+    {
+      "id": "subject:物理:tag:欧姆定律",
+      "label": "欧姆定律",
+      "type": "tag",
+      "note_id": ""
+    },
+    {
+      "id": "note:1fd09ed2967c",
+      "label": "欧姆定律",
+      "type": "note",
+      "note_id": "1fd09ed2967c"
+    }
+  ],
+  "edges": [
+    {
+      "from": "subject:数学",
+      "to": "subject:数学:tag:勾股定理"
+    },
+    {
+      "from": "subject:数学:tag:勾股定理",
+      "to": "note:d7f224c532e8"
+    },
+    {
+      "from": "subject:数学",
+      "to": "subject:数学:tag:直角三角形"
+    },
+    {
+      "from": "subject:数学:tag:直角三角形",
+      "to": "note:d7f224c532e8"
+    },
+    {
+      "from": "subject:物理",
+      "to": "subject:物理:tag:欧姆定律"
+    },
+    {
+      "from": "subject:物理:tag:欧姆定律",
+      "to": "note:1fd09ed2967c"
+    }
+  ]
+}

@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header"><h1>系统设置</h1></div>
+
+<!-- 保存按钮置顶 -->
+<button class="btn btn-primary btn-lg" style="margin-bottom:20px" id="saveApiBtn">保存全部设置</button>
+
+<div class="card">
+  <div class="card-title">智谱AI (GLM) — 主力视觉 / OCR（免费）</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">主力OCR引擎，负责看图识别题目、提取文字、判断学科年级。使用免费 GLM-4V-Flash。状态: <b id="zpStatus">-</b></p>
+  <div class="form-group"><label>API Key</label><input type="password" id="zpKey" placeholder="zhipu-api-key"><span style="font-size:12px;color:var(--text3)"> bigmodel.cn</span></div>
+  <div class="form-group"><label>API Base URL</label><input type="text" id="zpUrl" placeholder="https://open.bigmodel.cn/api/paas/v4"></div>
+  <div class="form-group"><label>模型名</label><input type="text" id="zpModel" value="glm-4v-flash"><span style="font-size:12px;color:var(--text3)"> 可选: glm-4v-flash / glm-4v / glm-4-flash</span></div>
+  <div class="form-group"><label>最大 Token</label><input type="number" id="zpMaxTokens" value="4096" min="256" max="131072" step="256"><span style="font-size:12px;color:var(--text3)"> GLM 视觉/OCR 单次调用 Token 上限</span></div>
+</div>
+
+<div class="card">
+  <div class="card-title">DeepSeek — 推理 / 解题 / 排版</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">负责数学推理、生成解答、编写示意图SVG、试卷排版与修复。模型: <span id="dsModelDisplay">deepseek-v4-pro</span></p>
+  <div class="form-group"><label>API Key</label><input type="password" id="dsKey" placeholder="sk-..."><span style="font-size:12px"> 状态: <b id="dsStatus">-</b></span></div>
+  <div class="form-group"><label>Base URL</label><input type="text" id="dsUrl" value="https://api.deepseek.com"></div>
+  <div class="form-group"><label>模型名</label><input type="text" id="dsModel" value="deepseek-v4-pro"><span style="font-size:12px;color:var(--text3)"> deepseek-v4-pro 或 deepseek-v4-flash</span></div>
+  <div class="form-group"><label>最大 Token</label><input type="number" id="dsMaxTokens" value="16384" min="1024" max="131072" step="1024"><span style="font-size:12px;color:var(--text3)"> 解题/排版单次调用 Token 上限</span></div>
+</div>
+
+<div class="card">
+  <div class="card-title">Kimi (月之暗面) — OCR 备用</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">GLM OCR 失效时自动回退使用。模型: <span id="kimiModelDisplay">kimi-k2.6</span></p>
+  <div class="form-group"><label>API Key</label><input type="password" id="kimiKey" placeholder="sk-..."><span style="font-size:12px"> 状态: <b id="kimiStatus">-</b></span></div>
+  <div class="form-group"><label>Base URL</label><input type="text" id="kimiUrl" value="https://api.moonshot.cn/v1"></div>
+  <div class="form-group"><label>模型名</label><input type="text" id="kimiModel" value="kimi-k2.6"><span style="font-size:12px;color:var(--text3)"> 支持图片输入的模型</span></div>
+  <div class="form-group"><label>最大 Token</label><input type="number" id="kimiMaxTokens" value="4096" min="256" max="131072" step="256"><span style="font-size:12px;color:var(--text3)"> Kimi OCR 单次调用 Token 上限</span></div>
+</div>
+
+{% if enable_xiaomi_tts %}
+<div class="card">
+  <div class="card-title">小米 MiMo — AI 配音与视觉备用</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">专注模式讲解配音（mimo-v2.5-tts），并作为视觉识别的备用链路（mimo-v2.5）。状态: <b id="xmStatus">-</b></p>
+  <div class="form-group"><label>Token Plan API Key</label><input type="password" id="xmKey" placeholder="tp-..."><span style="font-size:12px"> 状态: <b id="xmStatusText">-</b></span></div>
+  <div class="form-group"><label>API Base URL</label><input type="text" id="xmUrl" value="https://token-plan-cn.xiaomimimo.com/v1"></div>
+  <div class="row">
+    <div class="form-group">
+      <label>讲解配音引擎</label>
+      <select id="voiceEngine">
+        <option value="auto">跟随配置（有 Key 时优先小米）</option>
+        <option value="xiaomi">优先小米配音（失败回退浏览器）</option>
+        <option value="browser">仅浏览器合成</option>
+      </select>
+      <p style="font-size:12px;color:var(--text3);margin-top:4px" id="ttsEngineNote"></p>
+    </div>
+    <div class="form-group">
+      <label>TTS 音色</label>
+      <select id="ttsVoice">
+        <option value="mimo_default">默认音色（mimo_default）</option>
+        <option value="冰糖">冰糖（中文女声）</option>
+        <option value="茉莉">茉莉（中文女声）</option>
+        <option value="苏打">苏打（中文男声）</option>
+        <option value="白桦">白桦（中文男声）</option>
+        <option value="Mia">Mia（英文女声）</option>
+        <option value="Chloe">Chloe（英文女声）</option>
+        <option value="Milo">Milo（英文男声）</option>
+        <option value="Dean">Dean（英文男声）</option>
+      </select>
+    </div>
+  </div>
+  <button class="btn btn-sm" id="testVoiceBtn" onclick="testVoice(this)">试听配音</button>
+  <span style="font-size:12px;color:var(--text3);margin-left:8px" id="ttsTestStatus"></span>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">AI 全局参数</div>
+  <div class="row">
+    <div class="form-group"><label>全局 AI 超时时间 (秒)</label><input type="number" id="aiTimeout" value="900" min="30" max="3600" step="30"><span style="font-size:12px;color:var(--text3)"> 所有 API 调用超时</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>自定义 API（兼容 OpenAI 协议）</span>
+    <button class="btn btn-primary btn-sm" id="addCustomApiBtn" onclick="addCustomApi()">+ 添加</button>
+  </div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">每张卡片配置一个独立 API。模式选"替换"则前置于默认模型执行某个任务；选"回退"则当任何模型调用失败时自动切换（仅限一个回退模型）。</p>
+  <div id="customApiCards"></div>
+</div>
+
+<div class="card">
+  <div class="card-title">自动深色模式</div>
+  <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <label style="margin:0;cursor:pointer">
+      <span style="font-weight:500">自动切换深色模式</span>
+      <span style="color:var(--text2);font-size:12px;margin-left:6px">按时间段（UTC+8）自动切换主题</span>
+    </label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="darkModeAutoToggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  <div class="row">
+    <div class="form-group"><label>深色模式开始</label><input type="time" id="darkModeStart" value="18:00"></div>
+    <div class="form-group"><label>深色模式结束</label><input type="time" id="darkModeEnd" value="06:00"></div>
+  </div>
+  <p style="font-size:12px;color:var(--text3)">时间段之外为浅色模式。手动切换主题后会覆盖自动设置。</p>
+</div>
+
+<div class="card">
+  <div class="card-title">夜间自动巡检</div>
+  <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <label style="margin:0;cursor:pointer">
+      <span style="font-weight:500">启用夜间自动巡检</span>
+      <span style="color:var(--text2);font-size:12px;margin-left:6px">夜间空闲时段自动去重合并笔记、巡查题库标记错题、重写低质量解析</span>
+    </label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="nightPatrolToggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  <div class="row">
+    <div class="form-group"><label>巡检开始</label><input type="time" id="nightPatrolStart" value="01:00"></div>
+    <div class="form-group"><label>巡检结束</label><input type="time" id="nightPatrolEnd" value="05:00"></div>
+  </div>
+  <p style="font-size:12px;color:var(--text3)">每天在时间窗口内自动执行：笔记整合去重、题库错题巡查标记、低质量解析重写、经典模型收录（如一线三等角、手拉手模型等）。</p>
+</div>
+
+<div class="card">
+  <div class="card-title">拍照搜题</div>
+  <div class="form-group">
+    <label>默认匹配策略</label>
+    <select id="searchMode">
+      <option value="text">OCR 文本匹配（快速）</option>
+      <option value="ai">AI 语义匹配（精确但慢）</option>
+      <option value="hybrid">混合模式（先文本粗排再 AI 精排）</option>
+    </select>
+    <p style="font-size:12px;color:var(--text3);margin-top:4px">混合模式更适合后续单题批改场景。</p>
+  </div>
+  <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+    <label style="margin:0;cursor:pointer">
+      <span style="font-weight:500">批改时自动将新题加入题库</span>
+      <span style="color:var(--text2);font-size:12px;margin-left:6px">单题批改遇到未匹配新题时自动入库（后续功能）</span>
+    </label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="autoAddNewToggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">每日一言主题</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:8px">AI会按此主题搜索历史上的今天，如孔子的诞辰则选孔子名言。留空则不限主题。</p>
+  <div class="form-group"><label>主题偏好</label><select id="quoteTopic"><option value="">不限（综合搜索）</option><option value="国家与党史：革命先驱、建国历程、党的重大事件与人物">国家与党史</option><option value="科学与技术：科学家、发明家、重大科技突破、数学物理化学生物">科学与技术</option><option value="工程与创新：工程师、工业成就、建筑桥梁航天计算机">工程与创新</option><option value="人文与艺术：文学家、诗人、哲学家、艺术家、音乐家、历史人物">人文与艺术</option></select></div>
+</div>
+
+<div class="card">
+  <div class="card-title">界面设置</div>
+  <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <label style="margin:0;cursor:pointer">
+      <span style="font-weight:500">快速模式</span>
+      <span style="color:var(--text2);font-size:12px;margin-left:6px">关闭所有 UI 动画和复杂渲染</span>
+    </label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="quickModeToggle" onchange="if(typeof toggleQuickMode==='function')toggleQuickMode()">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <div class="card-title" style="margin-top:16px">主题色调</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">选择浅色/暗色主题的强调色（accent）。暗色模式将自动调亮。</p>
+  <div id="accentPicker" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <button class="accent-opt" data-accent="steel" title="钢蓝（默认）" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#2b5aed,#4a7bff);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">蓝</button>
+    <button class="accent-opt" data-accent="amber" title="琥珀金" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#e6a200,#ffc107);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">金</button>
+    <button class="accent-opt" data-accent="jade" title="翡翠绿" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#16a34a,#66bb6a);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">绿</button>
+    <button class="accent-opt" data-accent="mint" title="薄荷蓝" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#0097a7,#26c6da);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">青</button>
+    <button class="accent-opt" data-accent="rose" title="玫瑰红" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#c62828,#ef5350);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">红</button>
+    <button class="accent-opt" data-accent="violet" title="薰衣紫" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:linear-gradient(135deg,#7b1fa2,#ab47bc);display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">紫</button>
+    <button class="accent-opt" data-accent="custom" title="自定义HEX" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--border);cursor:pointer;background:var(--card-bg);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text2);font-weight:700">#</button>
+  </div>
+  <div id="customAccentFields" style="display:none;margin-bottom:14px">
+    <div class="row">
+      <div class="form-group"><label>浅色主题 HEX</label><input type="text" id="accentCustomLight" placeholder="#2b5aed" maxlength="7" style="width:120px"><div id="accentPreviewLight" style="width:24px;height:24px;border-radius:6px;display:inline-block;vertical-align:middle;margin-left:8px;border:1px solid var(--border)"></div></div>
+      <div class="form-group"><label>暗色主题 HEX</label><input type="text" id="accentCustomDark" placeholder="#6d8bff" maxlength="7" style="width:120px"><div id="accentPreviewDark" style="width:24px;height:24px;border-radius:6px;display:inline-block;vertical-align:middle;margin-left:8px;border:1px solid var(--border)"></div></div>
+    </div>
+  </div>
+  <button class="btn btn-primary btn-sm" id="applyAccentBtn">预览色调</button>
+  <p style="font-size:12px;color:var(--text3);margin-top:8px">点击「预览色调」即时查看效果，需「保存全部设置」才会持久化。</p>
+
+  <script>
+  (function(){
+    var chk=document.getElementById('quickModeToggle');
+    if(chk) chk.checked=document.body.classList.contains('quick-mode');
+  })();
+  </script>
+</div>
+
+<div class="header"><h1>用户画像</h1></div>
+
+<div class="card">
+  <div class="card-title">身份</div>
+  <div class="row">
+    <div class="form-group"><label>你是</label><select id="userRole"><option value="student">学生</option><option value="teacher">老师</option></select></div>
+  </div>
+
+  <div id="studentFields">
+    <div class="row">
+      <div class="form-group"><label>学段</label><select id="schoolLevel"><option value="">-</option><option value="小学">小学</option><option value="初中">初中</option><option value="高中">高中</option></select></div>
+      <div class="form-group"><label>年级</label><select id="userGrade"><option value="">-</option><option value="一年级">一年级</option><option value="二年级">二年级</option><option value="三年级">三年级</option><option value="四年级">四年级</option><option value="五年级">五年级</option><option value="六年级">六年级</option></select></div>
+    </div>
+  </div>
+
+  <div id="teacherFields" style="display:none">
+    <div class="form-group"><label>任教年级</label><input type="text" id="teachGrade" placeholder="如: 高中二年级"></div>
+  </div>
+
+  <div class="row">
+    <div class="form-group"><label>省份</label><input type="text" id="province" placeholder="如: 北京 / 浙江"></div>
+    <div class="form-group"><label>城市</label><input type="text" id="city" placeholder="如: 杭州"></div>
+    <div class="form-group"><label>学校</label><input type="text" id="school" placeholder="如: XX中学"></div>
+  </div>
+
+  <div class="form-group"><label>偏好学科</label><input type="text" id="userSubjects" placeholder="如: 数学,物理 (逗号分隔)"></div>
+
+  <div id="userAvgScore" style="font-size:13px;color:var(--text2);margin-bottom:8px"></div>
+  <div class="form-group"><label>排版/符号偏好 (影响所有题目生成)</label><textarea id="userStyle" rows="2" placeholder="例：全等用 ≅ 符号，不要用大括号；分数线用 / 不用 \frac"></textarea></div>
+  <p style="font-size:12px;color:var(--text3)">地区、学段、年级自动推导题目难度。排版偏好传递给AI生成所有题面和解答。</p>
+  <button class="btn btn-primary" id="saveProfileBtn">保存画像</button>
+  <div style="margin-top:8px;display:flex;gap:8px">
+    <button class="btn btn-sm" id="exportBtn">导出配置</button>
+    <button class="btn btn-sm" id="importBtn" onclick="document.getElementById('importFile').click()">导入配置</button>
+    <input type="file" id="importFile" style="display:none" accept=".json" onchange="importConfig(this.files[0])">
+  </div>
+</div>
+
+<script>
+(function(){
+  var _hasDs=false,_hasKm=false,_hasZp=false;
+  var _accentColor='',_accentCustomLight='',_accentCustomDark='';
+  var _customApis=[];
+
+  var SCOPE_LABELS={
+    'notes_ocr':'笔记OCR','notes_classify':'笔记分类','solve':'解题推理',
+    'paper':'组卷排版','diagram':'示意图生成','chat':'聊天对话'
+  };
+
+  var ACCENT_PRESETS={
+    'steel':{light:'#2b5aed',dark:'#6d8bff'},
+    'amber':{light:'#e6a200',dark:'#ffc107'},
+    'jade':{light:'#16a34a',dark:'#66bb6a'},
+    'mint':{light:'#0097a7',dark:'#26c6da'},
+    'rose':{light:'#c62828',dark:'#ef5350'},
+    'violet':{light:'#7b1fa2',dark:'#ab47bc'},
+  };
+
+  function highlightAccentOpt(){
+    document.querySelectorAll('.accent-opt').forEach(function(b){
+      if(b.dataset.accent===_accentColor){
+        b.style.borderColor='var(--accent)';b.style.boxShadow='0 0 0 3px var(--accent-soft)';
+      }else{
+        b.style.borderColor='var(--border)';b.style.boxShadow='none';
+      }
+    });
+    var cf=document.getElementById('customAccentFields');
+    cf.style.display=_accentColor==='custom'?'block':'none';
+    if(_accentColor==='custom'){
+      document.getElementById('accentCustomLight').value=_accentCustomLight;
+      document.getElementById('accentCustomDark').value=_accentCustomDark;
+      updateAccentPreview();
+    }
+  }
+
+  function updateAccentPreview(){
+    var l=document.getElementById('accentCustomLight').value.trim();
+    var d=document.getElementById('accentCustomDark').value.trim();
+    document.getElementById('accentPreviewLight').style.background=l||'#2b5aed';
+    document.getElementById('accentPreviewDark').style.background=d||'#6d8bff';
+  }
+
+  document.querySelectorAll('.accent-opt').forEach(function(b){
+    b.addEventListener('click',function(){
+      _accentColor=b.dataset.accent;
+      highlightAccentOpt();
+    });
+  });
+
+  document.getElementById('accentCustomLight').addEventListener('input',updateAccentPreview);
+  document.getElementById('accentCustomDark').addEventListener('input',updateAccentPreview);
+
+  document.getElementById('applyAccentBtn').addEventListener('click',function(){
+    if(_accentColor==='custom'){
+      _accentCustomLight=document.getElementById('accentCustomLight').value.trim();
+      _accentCustomDark=document.getElementById('accentCustomDark').value.trim();
+    }else{
+      _accentCustomLight='';
+      _accentCustomDark='';
+    }
+    applyAccentColor(_accentColor,_accentCustomLight,_accentCustomDark);
+    $toast('色调已预览，需保存设置才持久化');
+  });
+
+  function init(){
+    window.$API.get('/api/settings').then(function(s){
+      _hasDs=s.has_deepseek||false;_hasKm=s.has_kimi||false;_hasZp=s.has_zhipuai||false;
+      var _hasXm=s.has_xiaomi||false;
+      document.getElementById('dsKey').placeholder=_hasDs?'已配置, 留空保留':'sk-...';
+      document.getElementById('kimiKey').placeholder=_hasKm?'已配置, 留空保留':'sk-...';
+      document.getElementById('zpKey').placeholder=_hasZp?'已配置, 留空保留':'zhipu-api-key';
+      document.getElementById('xmKey').placeholder=_hasXm?'已配置, 留空保留':'tp-...';
+      document.getElementById('zpUrl').value=s.zhipuai_base_url||'https://open.bigmodel.cn/api/paas/v4';
+      document.getElementById('zpModel').value=s.zhipuai_model||'glm-4v-flash';
+      document.getElementById('zpMaxTokens').value=s.zhipuai_max_tokens||4096;
+      document.getElementById('dsUrl').value=s.deepseek_base_url||'https://api.deepseek.com';
+      document.getElementById('dsModel').value=s.deepseek_model||'deepseek-v4-pro';
+      document.getElementById('dsModelDisplay').textContent=s.deepseek_model||'deepseek-v4-pro';
+      document.getElementById('dsMaxTokens').value=s.deepseek_max_tokens||16384;
+      document.getElementById('kimiUrl').value=s.kimi_base_url||'https://api.moonshot.cn/v1';
+      document.getElementById('kimiModel').value=s.kimi_model||'kimi-k2.6';
+      document.getElementById('kimiModelDisplay').textContent=s.kimi_model||'kimi-k2.6';
+      document.getElementById('kimiMaxTokens').value=s.kimi_max_tokens||4096;
+      // Xiaomi MiMo（配音 + 视觉备用）；模块关闭时卡片不渲染，元素不存在需跳过
+      if(document.getElementById('xmUrl')){
+        document.getElementById('xmUrl').value=s.xiaomi_token_plan_base_url||'https://token-plan-cn.xiaomimimo.com/v1';
+        document.getElementById('voiceEngine').value=(s.focus_voice_engine==='xiaomi'||s.focus_voice_engine==='browser')?s.focus_voice_engine:'auto';
+        document.getElementById('ttsVoice').value=s.xiaomi_tts_voice||'mimo_default';
+        if(document.getElementById('ttsVoice').selectedIndex<0)document.getElementById('ttsVoice').value='mimo_default';
+        document.getElementById('ttsEngineNote').textContent=s.tts_unavailable_reason||'';
+        document.getElementById('xmStatus').textContent=(typeof s.tts_available!=='undefined'&&s.tts_available)?'可用':'不可用';
+        document.getElementById('xmStatus').style.color=(typeof s.tts_available!=='undefined'&&s.tts_available)?'var(--ok)':'var(--err)';
+        document.getElementById('xmStatusText').textContent=_hasXm?'已配置':'未配置';
+        document.getElementById('xmStatusText').style.color=_hasXm?'var(--ok)':'var(--err)';
+      }
+      document.getElementById('dsStatus').textContent=_hasDs?'已配置':'未配置';
+      document.getElementById('dsStatus').style.color=_hasDs?'var(--ok)':'var(--err)';
+      document.getElementById('kimiStatus').textContent=_hasKm?'已配置':'未配置';
+      document.getElementById('kimiStatus').style.color=_hasKm?'var(--ok)':'var(--err)';
+      document.getElementById('zpStatus').textContent=_hasZp?'已配置':'未配置';
+      document.getElementById('zpStatus').style.color=_hasZp?'var(--ok)':'var(--err)';
+      document.getElementById('aiTimeout').value=s.ai_timeout||900;
+      document.getElementById('quoteTopic').value=s.quote_topic||'';
+      // Custom APIs (dynamic)
+      _customApis=s.custom_apis||[];
+      if(!_customApis.length){
+        // legacy: fallback from old single custom_openai
+        if(s.has_custom_openai&&s.custom_openai_model){
+          _customApis=[{key:'••••••••',url:s.custom_openai_url||'',model:s.custom_openai_model,scope:(s.custom_openai_scopes&&s.custom_openai_scopes.length?s.custom_openai_scopes[0]:'')}];
+        }
+      }
+      renderCustomApiCards();
+      // Dark mode auto
+      document.getElementById('darkModeAutoToggle').checked=!!s.dark_mode_auto;
+      document.getElementById('darkModeStart').value=s.dark_mode_start||'18:00';
+      document.getElementById('darkModeEnd').value=s.dark_mode_end||'06:00';
+      // Night patrol
+      document.getElementById('nightPatrolToggle').checked=s.night_patrol_enabled!==false;
+      document.getElementById('nightPatrolStart').value=s.night_patrol_start||'01:00';
+      document.getElementById('nightPatrolEnd').value=s.night_patrol_end||'05:00';
+      // Search
+      document.getElementById('searchMode').value=s.search_mode||'text';
+      document.getElementById('autoAddNewToggle').checked=!!s.auto_add_new_to_bank;
+      // Accent color
+      _accentColor=s.accent_color||'';
+      _accentCustomLight=s.accent_custom_light||'';
+      _accentCustomDark=s.accent_custom_dark||'';
+      highlightAccentOpt();
+      // Also apply accent if saved
+      if(_accentColor)applyAccentColor(_accentColor,_accentCustomLight,_accentCustomDark);
+    }).catch(function(){});
+    loadProfile();
+  }
+
+  function renderCustomApiCards(){
+    var el=document.getElementById('customApiCards');
+    if(!_customApis.length){
+      el.innerHTML='<div style="font-size:13px;color:var(--text3);padding:12px 0;text-align:center;border:1px dashed var(--border);border-radius:6px">暂无自定义 API，点击 "+ 添加" 按钮创建</div>';
+      return;
+    }
+    var html='';
+    _customApis.forEach(function(api,i){
+      var maskedKey=api.key?'••••••••':'';
+      var isFallback=api.mode==='fallback';
+      var safeModel=$esc(api.model||'');
+      var safeUrl=$esc(api.url||'');
+      html+='<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;position:relative">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html+='<b style="font-size:13px">自定义 API #'+(i+1)+(safeModel?' - '+safeModel:'')+'</b>';
+      html+='<button class="btn btn-sm" style="color:var(--err)" onclick="removeCustomApi('+i+')">删除</button>';
+      html+='</div>';
+      html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">';
+      html+='<label style="font-weight:600;font-size:13px;margin:0">模式</label>';
+      html+='<label style="font-weight:400;display:flex;align-items:center;gap:4px;cursor:pointer">';
+      html+='<input type="radio" name="capi-mode-'+i+'" value="replace"'+(isFallback?'':' checked')+' onchange="onModeChange('+i+',this.value)"> 替换';
+      html+='</label>';
+      html+='<label style="font-weight:400;display:flex;align-items:center;gap:4px;cursor:pointer">';
+      html+='<input type="radio" name="capi-mode-'+i+'" value="fallback"'+(isFallback?' checked':'')+' onchange="onModeChange('+i+',this.value)"> 回退';
+      html+='</label>';
+      html+='<span style="font-size:11px;color:var(--text3)">（替换模式时选下方任务范围；回退模式时下方范围无效）</span>';
+      html+='</div>';
+      html+='<div class="form-group"><label>API Key</label><input type="password" data-capi-idx="'+i+'" data-capi-field="key" value="'+maskedKey+'" placeholder="sk-..."></div>';
+      html+='<div class="form-group"><label>Base URL</label><input type="text" data-capi-idx="'+i+'" data-capi-field="url" value="'+safeUrl+'" placeholder="https://api.openai.com/v1"></div>';
+      html+='<div class="form-group"><label>模型名</label><input type="text" data-capi-idx="'+i+'" data-capi-field="model" value="'+safeModel+'" placeholder="gpt-4o-mini"></div>';
+      html+='<div class="form-group" id="capi-scope-section-'+i+'" style="'+(isFallback?'opacity:0.4;pointer-events:none':'')+'"><label>适用范围（单选互斥，替换模式时生效）</label>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">';
+      Object.keys(SCOPE_LABELS).forEach(function(sk){
+        html+='<label style="font-weight:400;display:flex;align-items:center;gap:4px"><input type="radio" name="capi-scope-'+i+'" value="'+sk+'"'+(api.scope===sk?' checked':'')+'> '+SCOPE_LABELS[sk]+'</label>';
+      });
+      html+='</div></div>';
+      html+='</div>';
+    });
+    el.innerHTML=html;
+  }
+
+  function addCustomApi(){
+    _customApis.push({key:'',url:'',model:'',scope:'chat',mode:'replace'});
+    renderCustomApiCards();
+  }
+
+  async function removeCustomApi(i){
+    if(!await $confirm('删除此自定义 API 配置？',{danger:true}))return;
+    _customApis.splice(i,1);
+    renderCustomApiCards();
+  }
+
+  function onModeChange(idx, mode){
+    // Only one fallback allowed: reset all others
+    if(mode==='fallback'){
+      _customApis.forEach(function(api,i){
+        if(i!==idx)api.mode='replace';
+      });
+      // Re-render to sync DOM (avoids recursion from individual radio changes)
+      renderCustomApiCards();
+      return;
+    }
+    _customApis[idx].mode=mode;
+    var ss=document.getElementById('capi-scope-section-'+idx);
+    if(ss){ss.style.opacity='';ss.style.pointerEvents='auto'}
+  }
+
+  function saveSettings(){
+    var btn=document.getElementById('saveApiBtn');
+    var ds=document.getElementById('dsKey').value.trim();
+    var km=document.getElementById('kimiKey').value.trim();
+    var zp=document.getElementById('zpKey').value.trim();
+    // 模块关闭时小米卡片不渲染，元素可能不存在
+    var xmEl=document.getElementById('xmKey');
+    var xm=xmEl?xmEl.value.trim():'';
+    if(!ds&&!_hasDs){$toast('请填写 DeepSeek API Key','error');return}
+    if(!zp&&!_hasZp&&!km&&!_hasKm){$toast('请至少填写 GLM 或 Kimi 的 API Key（推荐 GLM 免费版）','error');return}
+    // 收集动态自定义 API 数据
+    var customApis=[];
+    document.querySelectorAll('#customApiCards [data-capi-idx]').forEach(function(inp){
+      var idx=parseInt(inp.dataset.capiIdx);
+      var field=inp.dataset.capiField;
+      if(!customApis[idx])customApis[idx]={key:'',url:'',model:'',scope:'',mode:'replace'};
+      if(field==='key'){
+        var v=inp.value.trim();if(v&&v!=='••••••••')customApis[idx].key=v;
+      }else{
+        customApis[idx][field]=inp.value.trim();
+      }
+      // scope from radio
+      var scopeRadio=document.querySelector('input[name="capi-scope-'+idx+'"]:checked');
+      if(scopeRadio)customApis[idx].scope=scopeRadio.value;
+    });
+    // 收集 mode（radio buttons 不在 data-capi-idx 选择器中）
+    document.querySelectorAll('#customApiCards input[name^="capi-mode-"]:checked').forEach(function(rb){
+      var match=rb.name.match(/capi-mode-(\d+)/);
+      if(match){
+        var idx2=parseInt(match[1]);
+        if(customApis[idx2])customApis[idx2].mode=rb.value;
+      }
+    });
+    // Fill in any missing keys from existing
+    customApis.forEach(function(ca,i){
+      if(!ca.key&&_customApis[i]&&_customApis[i].key)ca.key='••••••••';  // keep old key
+    });
+    $busy(btn,true,'保存中...');
+    window.$API.put('/api/settings',{
+      deepseek_api_key:ds,deepseek_base_url:document.getElementById('dsUrl').value.trim(),
+      deepseek_model:document.getElementById('dsModel').value.trim(),
+      deepseek_max_tokens:parseInt(document.getElementById('dsMaxTokens').value)||16384,
+      kimi_api_key:km,kimi_base_url:document.getElementById('kimiUrl').value.trim(),
+      kimi_model:document.getElementById('kimiModel').value.trim(),
+      kimi_max_tokens:parseInt(document.getElementById('kimiMaxTokens').value)||4096,
+      zhipuai_api_key:zp,
+      zhipuai_base_url:document.getElementById('zpUrl').value.trim(),
+      zhipuai_model:document.getElementById('zpModel').value.trim(),
+      zhipuai_max_tokens:parseInt(document.getElementById('zpMaxTokens').value)||4096,
+      xiaomi_token_plan_api_key:xm,
+      xiaomi_token_plan_base_url:(document.getElementById('xmUrl')&&document.getElementById('xmUrl').value.trim())||'https://token-plan-cn.xiaomimimo.com/v1',
+      xiaomi_tts_voice:document.getElementById('ttsVoice')?document.getElementById('ttsVoice').value:'mimo_default',
+      focus_voice_engine:document.getElementById('voiceEngine')?document.getElementById('voiceEngine').value:'auto',
+      custom_apis:customApis,
+      ai_timeout:parseInt(document.getElementById('aiTimeout').value)||900,
+      quote_topic:document.getElementById('quoteTopic').value,
+      dark_mode_auto:document.getElementById('darkModeAutoToggle').checked,
+      dark_mode_start:document.getElementById('darkModeStart').value,
+      dark_mode_end:document.getElementById('darkModeEnd').value,
+      night_patrol_enabled:document.getElementById('nightPatrolToggle').checked,
+      night_patrol_start:document.getElementById('nightPatrolStart').value,
+      night_patrol_end:document.getElementById('nightPatrolEnd').value,
+      accent_color:_accentColor||'',
+      accent_custom_light:_accentCustomLight||'',
+      accent_custom_dark:_accentCustomDark||'',
+      search_mode:document.getElementById('searchMode').value,
+      auto_add_new_to_bank:document.getElementById('autoAddNewToggle').checked
+    }).then(function(r){
+      document.getElementById('dsKey').value='';document.getElementById('kimiKey').value='';document.getElementById('zpKey').value='';
+      if(xmEl)xmEl.value='';
+      _hasDs=!!ds||_hasDs;_hasKm=!!km||_hasKm;_hasZp=!!zp||_hasZp;
+      var _hasXmNew=!!xm||_hasXm;
+      applyAccentColor(_accentColor||'',_accentCustomLight||'',_accentCustomDark||'');
+      document.getElementById('dsStatus').textContent=_hasDs?'已配置':'未配置';
+      document.getElementById('dsStatus').style.color=_hasDs?'var(--ok)':'var(--err)';
+      document.getElementById('kimiStatus').textContent=_hasKm?'已配置':'未配置';
+      document.getElementById('kimiStatus').style.color=_hasKm?'var(--ok)':'var(--err)';
+      document.getElementById('zpStatus').textContent=_hasZp?'已配置':'未配置';
+      document.getElementById('zpStatus').style.color=_hasZp?'var(--ok)':'var(--err)';
+      if(document.getElementById('xmStatusText')){
+        document.getElementById('xmStatusText').textContent=_hasXmNew?'已配置':'未配置';
+        document.getElementById('xmStatusText').style.color=_hasXmNew?'var(--ok)':'var(--err)';
+      }
+      // Key 可能刚配置好，重新拉一次可用性
+      window.$API.get('/api/settings').then(function(s2){
+        if(!document.getElementById('xmStatus'))return;
+        var ok=!!s2.tts_available;
+        document.getElementById('xmStatus').textContent=ok?'可用':'不可用';
+        document.getElementById('xmStatus').style.color=ok?'var(--ok)':'var(--err)';
+        document.getElementById('ttsEngineNote').textContent=s2.tts_unavailable_reason||'';
+      }).catch(function(){});
+      $toast(r.message,'ok');
+    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+  }
+
+  var _ttsTestAudio=null;
+  async function testVoice(btn){
+    var st=document.getElementById('ttsTestStatus');
+    // 若表单中的 Key 尚未保存，先提示，避免"旧 Key 出声绿灯"误导
+    var xmEl=document.getElementById('xmKey');
+    if(xmEl&&xmEl.value.trim()){
+      st.textContent='请先点上方"保存全部设置"，再试听新 Key';
+      return;
+    }
+    st.textContent='合成中...';
+    try{
+      // 音色用表单当前值（与实际播放一致的体验），无需先保存
+      var voice=(document.getElementById('ttsVoice')||{}).value||'mimo_default';
+      var resp=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':window.$API._authToken},body:JSON.stringify({text:'你好，我是你的学习搭子，今天我们一起加油。',voice:voice})});
+      if(!resp.ok){
+        var detail='';
+        try{var d=await resp.json();detail=d.detail||''}catch(e){}
+        st.textContent=(detail||('请求失败 '+resp.status));
+        return;
+      }
+      var blob=await resp.blob();
+      if(_ttsTestAudio){try{_ttsTestAudio.pause()}catch(e){}}
+      var url=URL.createObjectURL(blob);
+      var audio=new Audio(url);
+      _ttsTestAudio=audio;
+      audio.onended=function(){
+        URL.revokeObjectURL(url);
+        if(_ttsTestAudio===audio)_ttsTestAudio=null;
+      };
+      audio.onerror=function(){
+        URL.revokeObjectURL(url);
+        if(_ttsTestAudio===audio)_ttsTestAudio=null;
+        st.textContent='播放失败';
+      };
+      await audio.play();
+      st.textContent='正在播放...';
+    }catch(e){
+      st.textContent='试听失败：'+(e.message||'未知错误');
+    }
+  }
+
+  function onRoleChange(){
+    var role=document.getElementById('userRole').value;
+    document.getElementById('studentFields').style.display=role==='student'?'block':'none';
+    document.getElementById('teacherFields').style.display=role==='teacher'?'block':'none';
+  }
+
+  function loadProfile(){
+    window.$API.get('/api/profile').then(function(p){
+      document.getElementById('userRole').value=p.role||'student';
+      document.getElementById('schoolLevel').value=p.school_level||'';
+      document.getElementById('userGrade').value=p.grade||'';
+      document.getElementById('province').value=p.province||'';
+      document.getElementById('city').value=p.city||'';
+      document.getElementById('school').value=p.school||'';
+      document.getElementById('teachGrade').value=p.teach_grade||'';
+      document.getElementById('userSubjects').value=(p.favorite_subjects||[]).join(',');
+      document.getElementById('userStyle').value=p.style_notes||p.notation_preferences||'';
+      document.getElementById('userAvgScore').textContent=p.avg_score?'历史均分: '+p.avg_score+' (来自 '+(p.paper_history||[]).length+' 份试卷)':'暂无成绩记录';
+      onRoleChange();
+    }).catch(function(){});
+  }
+
+  function saveProfile(){
+    var btn=document.getElementById('saveProfileBtn');
+    $busy(btn,true,'保存中...');
+    window.$API.put('/api/profile',{
+      role:document.getElementById('userRole').value,
+      school_level:document.getElementById('schoolLevel').value,
+      grade:document.getElementById('userGrade').value,
+      province:document.getElementById('province').value.trim(),
+      city:document.getElementById('city').value.trim(),
+      school:document.getElementById('school').value.trim(),
+      teach_grade:document.getElementById('teachGrade').value.trim(),
+      favorite_subjects:document.getElementById('userSubjects').value.split(',').map(function(s){return s.trim()}).filter(Boolean),
+      style_notes:document.getElementById('userStyle').value.trim()
+    }).then(function(r){$toast(r.message,'ok');loadProfile()}).catch(function(e){$toast('保存画像失败: '+e.message,'error')}).finally(function(){$busy(btn,false)});
+  }
+
+  document.getElementById('saveApiBtn').addEventListener('click',saveSettings);
+  document.getElementById('saveProfileBtn').addEventListener('click',saveProfile);
+  document.getElementById('exportBtn').addEventListener('click',exportConfig);
+  document.getElementById('userRole').addEventListener('change',onRoleChange);
+  document.addEventListener('DOMContentLoaded', function(){ init(); });
+
+  function exportConfig(){
+    var btn=document.getElementById('exportBtn');
+    $busy(btn,true,'导出中...');
+    window.$API.get('/api/settings/export').then(function(cfg){
+      var blob=new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download='study-buddy-config.json';a.click();
+      $toast('配置已导出','ok');
+    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+  }
+
+  function importConfig(file){
+    var btn=document.getElementById('importBtn');
+    $busy(btn,true,'导入中...');
+    var r=new FileReader();r.onload=function(ev){
+      try{var cfg=JSON.parse(ev.target.result);window.$API.put('/api/settings/import',cfg).then(function(r){$toast(r.message,'ok');location.reload()}).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)})}
+      catch(ex){$toast('JSON格式错误','error');$busy(btn,false)}
+    };r.readAsText(file);
+  }
+
+  // Expose to global scope for inline onclick handlers
+  window.addCustomApi = addCustomApi;
+  window.removeCustomApi = removeCustomApi;
+  window.onModeChange = onModeChange;
+
+})();
+</script>
+{% endblock %}

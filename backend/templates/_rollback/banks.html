@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <h1>题库</h1>
+  <select id="bankFilter" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px" onchange="_page=0;loadQuestions()">
+    <option value="">全部题库</option>
+  </select>
+  <button class="btn btn-primary" onclick="openUpload()">+ 上传题目</button>
+</div>
+
+<!-- Upload modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeUpload()">&times;</button>
+    <h2>上传题目</h2>
+    <div style="display:flex;flex-direction:column;gap:10px">
+       <input type="file" id="fileInput" accept="image/*" multiple>
+       <div class="form-group"><label>切分模式</label>
+         <select id="uploadSplit"><option value="single">整张图=一道题</option><option value="auto">自动检测拆分多题</option></select>
+       </div>
+       <div class="form-group"><label>目标题库</label><input type="text" id="uploadBank" placeholder="默认: default" value="default"></div>
+      <div class="form-group"><label>知识点(逗号分隔)</label><input type="text" id="uploadTags" placeholder="如: 加法, 不等式"></div>
+      <div class="form-group"><label>年级</label><input type="text" id="uploadGrade" placeholder="如: 一年级"></div>
+      <div class="form-group"><label>提示</label><input type="text" id="uploadHint" placeholder="解题思路提示(可选)"></div>
+      <button class="btn btn-primary" onclick="doUpload()">上传并处理</button>
+      <div id="uploadStatus"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">题库管理</div>
+  <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <input type="text" id="newBankName" placeholder="新建题库名称" style="flex:1;min-width:120px">
+    <button class="btn btn-primary btn-sm" onclick="createBank()">创建</button>
+    <button class="btn btn-sm" id="renameBtn" onclick="renameBank()" disabled>重命名</button>
+    <button class="btn btn-sm" style="color:#c62828" id="deleteBtn" onclick="deleteBank()" disabled>删除题库</button>
+  </div>
+  <div id="tagSection" style="display:none;margin-bottom:8px">
+    <b>标签：</b><span id="tagList" style="display:inline-flex;gap:4px;flex-wrap:wrap;vertical-align:middle"></span>
+    <span style="margin-left:8px"><input type="text" id="newTagName" placeholder="新标签" style="width:80px;padding:2px 6px;font-size:12px" onkeydown="if(event.key==='Enter')addTag()"><button class="btn btn-sm" onclick="addTag()" style="padding:2px 6px;font-size:11px">+</button></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">题目列表</div>
+  <div class="filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+    <input type="text" id="filterKeyword" placeholder="搜索关键词" style="min-width:100px;flex:1" onkeydown="if(event.key==='Enter'){_page=0;loadQuestions()}">
+    <input type="text" id="filterSubject" placeholder="学科" style="min-width:60px;flex:0 1 80px" onkeydown="if(event.key==='Enter'){_page=0;loadQuestions()}">
+    <input type="text" id="filterGrade" placeholder="年级" style="min-width:60px;flex:0 1 80px" onkeydown="if(event.key==='Enter'){_page=0;loadQuestions()}">
+    <select id="filterStatus" onchange="_page=0;loadQuestions()" style="flex:0 1 auto"><option value="">全部状态</option><option value="done">已完成</option><option value="pending">待处理</option><option value="error">失败</option></select>
+    <input type="text" id="filterTags" placeholder="标签" style="min-width:80px;flex:0 1 100px" onkeydown="if(event.key==='Enter'){_page=0;loadQuestions()}">
+    <button class="btn btn-primary btn-sm" onclick="_page=0;loadQuestions()" style="flex-shrink:0">搜索</button>
+    <button class="btn btn-sm" id="retryAllBtn" onclick="retryAll()" style="flex-shrink:0">重试失败</button>
+    <select id="pageSize" onchange="_page=0;loadQuestions()" style="flex:0 1 auto;font-size:12px">
+      <option value="10">10条/页</option>
+      <option value="20" selected>20条/页</option>
+      <option value="50">50条/页</option>
+    </select>
+  </div>
+  <div id="questionTable"><span class="spin"></span></div>
+  <div id="pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap"></div>
+</div>
+
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <button class="modal-close" id="detailClose">&times;</button>
+    <h2>题目详情</h2>
+    <div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-sm" id="detailRetry">重新处理</button>
+      <button class="btn btn-sm" style="color:#c62828" id="detailDelete">删除</button>
+    </div>
+    <div class="tabs" id="detailTabs">
+      <div class="tab active" data-tab="q">题面</div>
+      <div class="tab" data-tab="s">标答</div>
+      <div class="tab" data-tab="a">解答</div>
+      <div class="tab" data-tab="i">信息</div>
+    <div class="tab" data-tab="c">AI对话</div>
+    </div>
+    <div class="tab-content active" id="tab-q"></div>
+    <div class="tab-content" id="tab-s"></div>
+    <div class="tab-content" id="tab-a"></div>
+    <div class="tab-content" id="tab-i"></div>
+    <div class="tab-content" id="tab-c">
+      <div style="display:flex;flex-direction:column;height:400px">
+        <div id="chatMsgs" style="flex:1;overflow-y:auto;padding:8px;background:#f9f9f9;border-radius:4px;font-size:13px"></div>
+        <div style="display:flex;gap:4px;margin-top:6px"><input type="text" id="chatInput" placeholder="让AI修改/重写/出新题..." style="flex:1" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn btn-primary btn-sm" onclick="sendChat()">发送</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _allQuestions=[];_currentBank='';_currentDetail=null;_page=0;
+
+function loadBanks(){
+  window.$API.get('/api/questions/banks').then(function(r){
+    var sel=document.getElementById('bankFilter');
+    sel.innerHTML='<option value="">全部题库</option>';
+    (r.banks||[]).forEach(function(b){
+      var o=document.createElement('option');o.value=b;o.textContent=b;sel.appendChild(o);
+    });
+  });
+}
+
+function loadQuestions(page){
+  if(page!==undefined)_page=page;
+  var params={};
+  var bk=document.getElementById('bankFilter').value;
+  if(bk){params.bank=bk;_currentBank=bk}else _currentBank='';
+  ['filterKeyword','filterSubject','filterGrade','filterStatus','filterTags'].forEach(function(id){
+    var v=document.getElementById(id).value;if(v){
+      if(id==='filterTags') params.knowledge_tags=v;
+      else params[id.replace('filter','').toLowerCase()]=v;
+    }
+  });
+  var ps=parseInt(document.getElementById('pageSize').value)||20;
+  params.limit=ps+1; // request one extra to detect "has more"
+  params.offset=_page*ps;
+  var t=document.getElementById('questionTable');t.innerHTML='<span class="spin"></span>';
+  window.$API.get('/api/questions?'+new URLSearchParams(params).toString()).then(function(data){
+    _allQuestions=data;
+    var hasMore=data.length>ps;
+    var items=data.slice(0,ps);
+    if(!items.length){t.innerHTML='<div class="empty">暂无题目</div>';document.getElementById('pagination').innerHTML='';updateBankUI();return}
+    var h='<table><thead><tr><th>题目</th><th>学科</th><th>年级</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+    items.forEach(function(q,i){
+      var st=q.status;var sc=st==='done'?'#2e7d32':st==='error'?'#c62828':'#e65100';
+      h+='<tr><td><a href="#" onclick="viewDetail(\''+q.id+'\');return false">'+((q.ocr_text||'').slice(0,30)||'[题'+(_page*ps+i+1)+']')+'</a></td>';
+      h+='<td>'+(q.subject||'-')+'</td><td>'+(q.grade||'-')+'</td>';
+      h+='<td style="color:'+sc+'">'+st+'</td>';
+      h+='<td style="white-space:nowrap"><button class="btn btn-sm" onclick="retryQ(event,\''+q.id+'\')">重试</button> <button class="btn btn-sm" style="color:#c62828" onclick="delQ(event,\''+q.id+'\')">删</button></td></tr>';
+    });
+    t.innerHTML=h+'</tbody></table>';
+    // Pagination controls
+    var pg=document.getElementById('pagination');
+    var start=_page*ps+1;
+    var end=_page*ps+items.length;
+    pg.innerHTML='<span style="font-size:12px;color:var(--text2)">'+(hasMore?start+'-'+end+'+':start+'-'+end)+'</span>';
+    if(_page>0)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page-1)+')">← 上一页</button>';
+    pg.innerHTML+='<span style="font-size:12px;font-weight:600">第 '+(_page+1)+' 页</span>';
+    if(hasMore)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page+1)+')">下一页 →</button>';
+    updateBankUI();
+  });
+}
+
+function updateBankUI(){
+  var b=_currentBank;
+  document.getElementById('tagSection').style.display=(b?'block':'none');
+  document.getElementById('renameBtn').disabled=(!b||b==='default');
+  document.getElementById('deleteBtn').disabled=(!b||b==='default');
+  if(!b)return;
+  window.$API.get('/api/banks/'+b+'/tags').then(function(r){
+    var el=document.getElementById('tagList');el.innerHTML='';
+    (r.tags||[]).forEach(function(t){
+      el.innerHTML+='<span style="padding:2px 8px;border-radius:3px;background:#e3f2fd;font-size:12px">'+t+'<span style="cursor:pointer;color:#c62828;margin-left:4px" onclick="deleteTag(\''+t+'\')">&times;</span></span>';
+    });
+  }).catch(function(){});
+}
+
+function createBank(){
+  var name=document.getElementById('newBankName').value.trim();
+  if(!name){$toast('请输入名称','error');return}
+  document.getElementById('newBankName').value='';
+  $toast('题库在上传题目时自动创建','ok');
+}
+
+function renameBank(){
+  var old=_currentBank;if(!old)return;
+  var n=prompt('新名称:',old);if(!n||n===old)return;
+  window.$API.post('/api/banks/'+old+'/rename?new_name='+encodeURIComponent(n),{}).then(function(r){
+    $toast(r.message,'ok');loadBanks();setTimeout(loadQuestions,500);
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function deleteBank(){
+  var b=_currentBank;if(!b||b==='default')return;
+  if(!confirm('删除题库「'+b+'」？题目移至默认题库。'))return;
+  window.$API.delete('/api/banks/'+b).then(function(r){
+    $toast(r.message,'ok');loadBanks();loadQuestions();
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function addTag(){
+  var t=document.getElementById('newTagName').value.trim();
+  if(!t||!_currentBank)return;
+  window.$API.post('/api/banks/'+_currentBank+'/tags/add?tag='+encodeURIComponent(t),{}).then(function(r){
+    $toast(r.message,'ok');updateBankUI();document.getElementById('newTagName').value='';
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function deleteTag(t){
+  window.$API.delete('/api/banks/'+_currentBank+'/tags/remove?tag='+encodeURIComponent(t)).then(function(r){
+    $toast(r.message,'ok');updateBankUI();
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function retryQ(ev,id){ev.stopPropagation();window.$API.post('/api/ocr/'+id+'/retry').then(function(){loadQuestions()}).catch(function(e){$toast(e.message,'error')})}
+function delQ(ev,id){
+  ev.stopPropagation();
+  if(!confirm('删除此题？'))return;
+  window.$API.delete('/api/questions/'+id).then(function(){loadQuestions()}).catch(function(e){$toast(e.message,'error')});
+}
+function retryAll(){
+  var failed=_allQuestions.filter(function(q){return q.status==='error'}).map(function(q){return q.id});
+  if(!failed.length){$toast('没有失败题目','error');return}
+  $toast('正在重试 '+failed.length+' 题...','ok');
+  function next(i){if(i>=failed.length){loadQuestions();return}window.$API.post('/api/ocr/'+failed[i]+'/retry').then(function(){next(i+1)}).catch(function(){next(i+1)})}
+  next(0);
+}
+
+// Detail modal tabs
+document.getElementById('detailTabs').addEventListener('click',function(e){
+  if(e.target.classList.contains('tab')){
+    switchTab(e.target.dataset.tab);
+  }
+});
+
+function switchTab(t){
+  document.querySelectorAll('#detailTabs .tab').forEach(function(el){el.classList.toggle('active',el.dataset.tab===t)});
+  ['q','s','a','i','c'].forEach(function(x){
+    var el=document.getElementById('tab-'+x);
+    el.classList.toggle('active',x===t);
+    if(x==='c')el.style.display=t==='c'?'block':'none';
+  });
+}
+
+function viewDetail(id){
+  document.querySelector('.ai-fab').style.display='none';
+  document.body.classList.add('detail-open');
+  window.$API.get('/api/questions/'+id).then(function(d){
+    _currentDetail=d;
+    document.getElementById('detailModal').classList.add('show');
+    // Bind buttons FIRST before any other processing
+    document.getElementById('detailRetry').onclick=function(ev){retryQ(ev,d.id);closeDetail()};
+    document.getElementById('detailDelete').onclick=function(){if(confirm('删除此题？')){window.$API.delete('/api/questions/'+d.id).then(function(){closeDetail();loadQuestions()}).catch(function(e){$toast(e.message,'error')})}};
+    ['q','s','a','i'].forEach(function(x){document.getElementById('tab-'+x).innerHTML=''});
+    // Replace [[DIAGRAM:N]] / append diagram placeholders, then inline SVG
+    var qhtml=d.question_html||d.ocr_text||'*暂无*';
+    var diagrams=d.diagrams||[];
+    var hasMarker=/\[\[DIAGRAM:\d+\]\]/.test(qhtml);
+    function getPath(p){return typeof p==='object'?p.path||'':p}
+    qhtml=qhtml.replace(/\[\[DIAGRAM:(\d+)\]\]/g,function(_,n){
+      var idx=parseInt(n)-1;
+      if(idx>=0 && idx<diagrams.length) return '<div class="diagram" data-svg="'+getPath(diagrams[idx])+'"></div>';
+      return '';
+    });
+    if(!hasMarker && diagrams.length){
+      for(var i=0;i<diagrams.length;i++) qhtml+='<div class="diagram" data-svg="'+getPath(diagrams[i])+'"></div>';
+    }
+    // question_html is already HTML, just set innerHTML + render math
+    var el=document.getElementById('tab-q');
+    el.innerHTML=qhtml;
+    if(typeof renderMathInElement!=='undefined'){
+      try{renderMathInElement(el,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}],throwOnError:false})}catch(e){}
+    }
+    // Fetch SVGs and inline them
+    el.querySelectorAll('.diagram[data-svg]').forEach(function(div){
+      var url=div.getAttribute('data-svg');
+      fetch(url+'?t='+Date.now()).then(function(r){return r.text()}).then(function(svg){
+        div.innerHTML=svg;
+        var s=div.querySelector('svg');
+        if(s){s.style.maxWidth='80%';s.style.height='auto';s.style.display='block';s.style.margin='12px auto'}
+      }).catch(function(){div.textContent='[图加载失败]'});
+    });
+    var sa=d.standard_answer||'';
+    document.getElementById('tab-s').innerHTML=sa?'<div style="font-size:18px;font-weight:bold;padding:16px;background:#e8f5e9;border-radius:6px;margin:8px 0">标答：'+sa+'</div>':'<p>暂无标答</p>';
+    $md(d.answer_html||d.score_points_html||'*暂无*',document.getElementById('tab-a'));
+    document.getElementById('tab-i').innerHTML='<p><b>题型：</b>'+(d.question_type||'未分类')+'</p><p><b>学科：</b>'+(d.subject||'-')+' / <b>年级：</b>'+(d.grade||'-')+'</p><p><b>知识点：</b>'+(d.knowledge_tags||[]).join(', ')+'</p><p><b>题库：</b>'+d.bank+'</p><p><b>状态：</b>'+d.status+'</p>'+(d.error_message?'<p style="color:#c62828"><b>错误：</b>'+d.error_message+'</p>':'');
+    switchTab('q');
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function closeDetail(){
+  document.getElementById('detailModal').classList.remove('show');
+  document.body.classList.remove('detail-open');
+  var fab=document.querySelector('.ai-fab');
+  if(fab)fab.style.display='';
+}
+document.getElementById('detailClose').addEventListener('click',closeDetail);
+
+var _chatHistory=[];
+function sendChat(){
+  var m=document.getElementById('chatInput').value.trim();
+  if(!m||!_currentDetail)return;
+  document.getElementById('chatInput').value='';
+  var el=document.getElementById('chatMsgs');
+  el.innerHTML+='<div style="margin:4px 0;color:var(--accent)">[User] '+m+'</div>';
+  el.innerHTML+='<div><span class="spin"></span></div>';
+  _chatHistory.push({role:'user',content:m});
+  window.$API.post('/api/questions/'+_currentDetail.id+'/chat',{message:m}).then(function(r){
+    var msgs=document.querySelectorAll('#chatMsgs .spin');
+    msgs.forEach(function(s){s.parentElement.remove()});
+    var div=document.createElement('div');
+    div.style.cssText='margin:4px 0';
+    $md(r.reply,div);
+    el.appendChild(div);
+    // Show confirm/cancel if there's a pending change
+    if(r.tool&&r.tool.type==='pending'){
+      var btnDiv=document.createElement('div');
+      btnDiv.style.cssText='display:flex;gap:6px;margin:4px 0';
+      var confirmBtn=document.createElement('button');
+      confirmBtn.className='btn btn-primary btn-sm';
+      confirmBtn.textContent='确认应用';
+      confirmBtn.onclick=function(){
+        API.post('/api/questions/'+_currentDetail.id+'/confirm-pending',{}).then(function(r2){
+          $toast(r2.message,'ok');
+          // Refresh detail to show changes
+          if(window.viewDetail)viewDetail(_currentDetail.id);
+          btnDiv.remove();
+        }).catch(function(e2){$toast(e2.message,'error')});
+      };
+      var cancelBtn=document.createElement('button');
+      cancelBtn.className='btn btn-sm';
+      cancelBtn.textContent='取消';
+      cancelBtn.onclick=function(){
+        API.post('/api/questions/'+_currentDetail.id+'/cancel-pending',{}).then(function(){
+          btnDiv.remove();
+        }).catch(function(){btnDiv.remove()});
+      };
+      btnDiv.appendChild(confirmBtn);
+      btnDiv.appendChild(cancelBtn);
+      el.appendChild(btnDiv);
+    }
+    el.scrollTop=el.scrollHeight;
+  }).catch(function(e){
+    el.innerHTML+='<div style="color:#c62828">ERROR: '+e.message+'</div>';
+  });
+}
+
+function openUpload(){document.getElementById('uploadModal').classList.add('show')}
+function closeUpload(){document.getElementById('uploadModal').classList.remove('show')}
+
+function doUpload(){
+  var files=document.getElementById('fileInput').files;
+  if(!files.length){$toast('请选择图片','error');return}
+  var bank=document.getElementById('uploadBank').value.trim()||'default';
+  var tags=document.getElementById('uploadTags').value.trim();
+  var grade=document.getElementById('uploadGrade').value.trim();
+  var hint=document.getElementById('uploadHint').value.trim();
+  var split=document.getElementById('uploadSplit').value;
+  var status=document.getElementById('uploadStatus');
+  status.innerHTML='<span class="spin"></span> 上传中...';
+
+  var ids=[];
+  function next(i){
+    if(i>=files.length){
+      if(!ids.length){status.innerHTML='上传失败';return}
+      var fd=new FormData();
+      fd.append('question_ids',ids.join(','));
+      fd.append('user_tags',tags);fd.append('user_grade',grade);
+      fd.append('user_hint',hint);fd.append('split_mode',split);
+      fd.append('bank',bank);
+      status.innerHTML='<span class="spin"></span> 处理中...';
+      window.$API.upload('/api/ocr/batch-process',fd).then(function(r){
+        $toast(r.message,'ok');closeUpload();loadQuestions();loadBanks();
+      }).catch(function(e){status.innerHTML='<span style="color:#c62828">'+e.message+'</span>'});
+      return;
+    }
+    var fd=new FormData();
+    fd.append('file',files[i]);
+    fd.append('bank',bank);
+    window.$API.upload('/api/ocr/upload',fd).then(function(r){
+      ids.push(r.question_id);
+      status.innerHTML='上传 '+(i+1)+'/'+files.length;
+      next(i+1);
+    }).catch(function(e){status.innerHTML='<span style="color:#c62828">'+e.message+'</span>'});
+  }
+  next(0);
+}
+
+loadBanks();loadQuestions();
+</script>
+{% endblock %}

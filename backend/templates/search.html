@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.search-result{display:flex;gap:var(--sp-3);align-items:flex-start;padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:var(--sp-2);background:var(--card-bg)}
+.search-result .res-thumb{width:clamp(56px,18vw,80px);height:clamp(56px,18vw,80px);object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--subtle);flex-shrink:0}
+.search-result .res-info{flex:1;min-width:0}
+.search-result .res-title{font-weight:600;font-size:var(--fs-md);margin-bottom:4px}
+.search-result .res-meta{font-size:var(--fs-xs);color:var(--text3);margin-bottom:4px}
+.search-result .res-preview{font-size:var(--fs-sm);color:var(--text2);line-height:1.5;word-break:break-word}
+.search-result .res-actions{display:flex;gap:6px;margin-top:var(--sp-2);flex-wrap:wrap}
+.search-result .res-actions .btn{flex:1 1 120px}
+.score-badge{display:inline-block;padding:2px 8px;border-radius:var(--r-sm);font-size:var(--fs-sm);font-weight:600;background:var(--accent-soft);color:var(--accent)}
+.search-ocr-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);font-size:var(--fs-base);line-height:1.6;margin-bottom:var(--sp-4);max-height:160px;overflow:auto}
+.no-match-controls{margin-top:var(--sp-2);display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+.no-match-controls input{flex:1 1 180px;min-width:min(100%,180px);min-height:44px}
+.no-match-controls .btn{flex:0 1 auto}
+.split-nav{display:none;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-2) 0}
+</style>
+
+<div class="header">
+  <h1>拍照搜题</h1>
+</div>
+
+<div class="card">
+  <div class="card-title">上传题目图片</div>
+  <div class="capture-selector" id="captureSelector">
+    <label class="capture-option"><input type="radio" name="captureMode" value="single_question" checked><b>单题</b><span>多张图共同组成一道题</span></label>
+    <label class="capture-option"><input type="radio" name="captureMode" value="single_page"><b>单页</b><span>识别页面并拆成独立题目</span></label>
+    <label class="capture-option"><input type="radio" name="captureMode" value="whole_paper"><b>整卷</b><span>按上传顺序拆分整份试卷</span></label>
+  </div>
+  <div class="mode-selector">
+    <label style="font-size:var(--fs-base);margin-right:var(--sp-2)">匹配策略：</label>
+    <select id="searchMode">
+      <option value="text">OCR 文本匹配（快速）</option>
+      <option value="ai">AI 语义匹配（精确）</option>
+      <option value="hybrid">混合模式（默认）</option>
+    </select>
+    <span class="hint" style="margin-left:var(--sp-2)">可在「系统设置」中修改默认策略</span>
+  </div>
+  <div class="upload-zone" id="searchDropZone" role="button" tabindex="0" aria-label="选择搜题图片">
+    <input type="file" id="searchFileInput" accept="image/jpeg,image/png,image/webp" multiple>
+    <p>点击或拖拽上传图片</p>
+    <p class="hint" id="captureHint">可选择多张图片，系统会把它们作为同一道题识别</p>
+    <div id="searchPreviews" class="upload-previews" style="display:none"></div>
+  </div>
+  <div class="upload-status" id="searchStatus"></div>
+</div>
+
+<div class="card" id="ocrCard" style="display:none">
+  <div class="card-title">识别结果</div>
+  <div class="search-ocr-box" id="ocrTextBox"></div>
+  <div class="split-nav" id="splitQuestionNav"></div>
+</div>
+
+<div class="card" id="resultCard" style="display:none">
+  <div class="card-title">匹配结果（Top 3）</div>
+  <div id="searchResults"></div>
+</div>
+
+<div class="card" id="unmatchedCard" style="display:none">
+  <div class="card-title">未找到高度相似的题目</div>
+  <div class="empty-state">
+    <p>题库中暂无完全匹配的题目。</p>
+    <div class="no-match-controls">
+      <label style="font-size:var(--fs-base)">目标题库：</label>
+      <input type="text" id="addBankName" list="bankDatalist" value="default">
+      <datalist id="bankDatalist"></datalist>
+      <button class="btn btn-primary btn-sm" id="addToBankBtn">加入题库</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var currentQueryId = null;
+  var pollTimer = null;
+  var lastOcrResult = null;
+  var uploading = false;
+  var addingToBank = false;
+  var pollErrorCount = 0;
+  var pollStartedAt = 0;
+  var MAX_IMAGES = 12;
+  var MAX_SIZE = 10 * 1024 * 1024;
+  var ALLOWED_TYPES = ['image/jpeg','image/png','image/webp'];
+  var activeCaptureMode = 'single_question';
+  var pendingObjectUrls = [];
+
+  function $(id){return document.getElementById(id)}
+  function setStatus(msg, type){
+    var el = $('searchStatus');
+    el.textContent = msg;
+    el.style.color = type === 'error' ? 'var(--err)' : (type === 'ok' ? 'var(--ok)' : 'var(--text2)');
+  }
+  function captureMode(){var checked=document.querySelector('input[name="captureMode"]:checked');return checked?checked.value:'single_question'}
+  function updateCaptureHint(){
+    $('captureHint').textContent={
+      single_question:'可选择多张图片，系统会把它们作为同一道题识别',
+      single_page:'可上传页面全图或多张局部补充图，识别后按题拆分',
+      whole_paper:'请按页码顺序选择多张图片，识别后可逐题查看搜索结果'
+    }[captureMode()];
+  }
+  function revokePendingUrls(){
+    pendingObjectUrls.forEach(function(u){try{URL.revokeObjectURL(u)}catch(e){}});
+    pendingObjectUrls = [];
+  }
+
+  function init(){
+    var dz = $('searchDropZone');
+    var input = $('searchFileInput');
+    dz.addEventListener('click', function(){ input.click(); });
+    dz.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}});
+    input.addEventListener('change', function(){ if(input.files && input.files.length) uploadFiles(input.files); });
+    dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', function(){ dz.classList.remove('dragover'); });
+    dz.addEventListener('drop', function(e){
+      e.preventDefault(); dz.classList.remove('dragover');
+      var files = e.dataTransfer.files;
+      if(files && files.length) uploadFiles(files);
+    });
+    $('captureSelector').addEventListener('change', onCaptureModeChange);
+    $('addToBankBtn').addEventListener('click', addToBank);
+    loadBanks();
+    loadSearchMode();
+  }
+
+  function onCaptureModeChange(){
+    if(uploading){
+      var previous=document.querySelector('input[name="captureMode"][value="'+activeCaptureMode+'"]');if(previous)previous.checked=true;
+      setStatus('图片正在上传，完成后再切换模式','info');return;
+    }
+    activeCaptureMode=captureMode();stopPolling();currentQueryId=null;lastOcrResult=null;
+    $('ocrCard').style.display='none';$('resultCard').style.display='none';$('unmatchedCard').style.display='none';
+    setStatus('', 'info');updateCaptureHint();
+  }
+
+  function loadSearchMode(){
+    window.$API.get('/api/settings').then(function(s){
+      var mode = s.search_mode || 'text';
+      var sel = $('searchMode');
+      if(sel.querySelector('option[value="'+mode+'"]')) sel.value = mode;
+    }).catch(function(){});
+  }
+
+  function loadBanks(){
+    window.$API.get('/api/questions/banks').then(function(r){
+      var dl = $('bankDatalist'); dl.innerHTML = '';
+      (r.banks||[]).forEach(function(b){
+        var o = document.createElement('option'); o.value = b; dl.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+
+  function uploadFiles(fileList){
+    if(uploading) return;
+    var files=Array.prototype.slice.call(fileList||[]);
+    if(!files.length){setStatus('请至少选择一张图片','error');return}
+    if(files.length>MAX_IMAGES){setStatus('一次最多上传 '+MAX_IMAGES+' 张图片','error');return}
+    var invalid=files.find(function(file){return ALLOWED_TYPES.indexOf(file.type)<0||!file.size||file.size>MAX_SIZE});
+    if(invalid){setStatus('文件 '+invalid.name+' 不是有效图片、为空或超过 10MB','error');return}
+    uploading = true;
+    activeCaptureMode=captureMode();
+    stopPolling();
+    revokePendingUrls();
+    var previewBox=$('searchPreviews');previewBox.innerHTML='';previewBox.style.display='grid';
+    files.forEach(function(file){
+      var img=document.createElement('img');
+      img.className='upload-preview';img.alt=file.name;
+      var url=URL.createObjectURL(file);
+      pendingObjectUrls.push(url);
+      img.src=url;
+      img.onload=function(){ /* URL 在批量完成后再统一释放 */ };
+      previewBox.appendChild(img);
+    });
+
+    var form = new FormData();
+    files.forEach(function(file){form.append('files',file)});
+    form.append('capture_mode',activeCaptureMode);
+    $('ocrCard').style.display='none';$('resultCard').style.display='none';$('unmatchedCard').style.display='none';
+    setStatus('正在上传...', 'info');
+    window.$API.upload('/api/search/upload', form).then(function(r){
+      currentQueryId = r.question_id;
+      setStatus('已上传 '+r.image_count+' 张图片，正在识别文字...', 'info');
+      startPolling();
+    }).catch(function(e){
+      setStatus('上传失败：' + (e.message || '未知错误'), 'error');
+    }).finally(function(){
+      uploading = false;
+    });
+  }
+
+  function startPolling(){
+    if(pollTimer) clearInterval(pollTimer);
+    pollErrorCount = 0;
+    pollStartedAt = Date.now();
+    pollTimer = setInterval(pollStatus, 1500);
+    pollStatus();
+  }
+
+  function stopPolling(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function pollStatus(){
+    if(!currentQueryId) return;
+    if(pollStartedAt && Date.now()-pollStartedAt>180000){
+      stopPolling();setStatus('处理超过 3 分钟，请稍后重试或重新上传更清晰的图片。','error');return;
+    }
+    window.$API.get('/api/search/status/' + encodeURIComponent(currentQueryId)).then(function(r){
+      if(r.status === 'search_done'){
+        stopPolling();
+        showOcrResult(r);
+        showSplitNavigator(r.split_question_ids || [currentQueryId]);
+        runMatch();
+      } else if(r.status === 'error' || (r.task && r.task.status === 'error')){
+        stopPolling();
+        setStatus('识别失败：' + (r.task && r.task.error_message ? r.task.error_message : '未知错误'), 'error');
+      } else if(r.status==='search_splitting'){
+        setStatus('文字识别完成，正在分割独立题目...', 'info');
+      } else {
+        var progress = r.task ? Math.round((r.task.progress || 0) * 100) : 0;
+        setStatus('识别中 ' + progress + '%...', 'info');
+      }
+    }).catch(function(e){
+      pollErrorCount += 1;
+      if(pollErrorCount >= 5){
+        stopPolling();
+        setStatus('状态查询多次失败，已停止轮询：' + e.message, 'error');
+      } else {
+        setStatus('状态查询失败（第' + pollErrorCount + '次，将重试）：' + e.message, 'error');
+      }
+    });
+  }
+
+  function showOcrResult(r){
+    lastOcrResult = r;
+    $('ocrCard').style.display = 'block';
+    $('ocrTextBox').textContent = r.ocr_text || '（未识别到文字）';
+    setStatus('识别完成，正在匹配题库...', 'info');
+  }
+
+  function showSplitNavigator(ids){
+    var nav=$('splitQuestionNav');
+    nav.innerHTML='';
+    if(!ids||ids.length<2){nav.style.display='none';return}
+    nav.style.display='flex';
+    var label=document.createElement('span');label.textContent='检测到 '+ids.length+' 道题：';label.style.alignSelf='center';nav.appendChild(label);
+    ids.forEach(function(id,index){
+      var btn=document.createElement('button');btn.type='button';btn.className='btn btn-sm'+(id===currentQueryId?' btn-primary':'');btn.textContent='第 '+(index+1)+' 题';
+      btn.onclick=function(){
+        currentQueryId=id;
+        nav.querySelectorAll('button').forEach(function(x){x.classList.remove('btn-primary')});btn.classList.add('btn-primary');
+        window.$API.get('/api/search/status/'+encodeURIComponent(id)).then(function(status){showOcrResult(status);runMatch()}).catch(function(e){setStatus(e.message,'error')});
+      };
+      nav.appendChild(btn);
+    });
+  }
+
+  function runMatch(){
+    if(!currentQueryId) return;
+    var mode = $('searchMode').value;
+    window.$API.post('/api/search/match', {question_id: currentQueryId, mode: mode}).then(function(r){
+      $('resultCard').style.display = 'block';
+      renderResults(r.matches || [], r.confidence_threshold);
+    }).catch(function(e){
+      setStatus('匹配失败：' + e.message, 'error');
+    });
+  }
+
+  function renderResults(matches, backendThreshold){
+    var container = $('searchResults');
+    container.innerHTML = '';
+    $('resultCard').style.display = 'block';
+    if(!matches || !matches.length){
+      showUnmatched();
+      return;
+    }
+    var topScore = matches[0].score || 0;
+    var threshold = typeof backendThreshold==='number' ? backendThreshold : 0.7;
+    var lowMatch = topScore < threshold;
+    if(lowMatch){
+      var note = document.createElement('div');
+      note.className = 'alert';
+      note.textContent = '匹配度较低，请确认是否为同一题，或点击下方加入题库。';
+      note.style.marginBottom = 'var(--sp-3)';
+      container.appendChild(note);
+    }
+    matches.forEach(function(m, idx){
+      var el = document.createElement('div');
+      el.className = 'search-result';
+      var thumb = $esc(m.raw_image_path || '');
+      var meta = [];
+      if(m.subject) meta.push($esc(m.subject));
+      if(m.grade) meta.push($esc(m.grade));
+      if(m.tags && m.tags.length) meta.push($esc(m.tags.join(', ')));
+      var preview = $esc(m.preview || '');
+      var qid = $esc(m.question_id || '');
+      el.innerHTML =
+        (thumb ? '<img class="res-thumb" src="' + thumb + '" alt="题目原图" onerror="this.style.display=\'none\'">' : '') +
+        '<div class="res-info">' +
+          '<div class="res-title">#' + (idx + 1) + ' <span class="score-badge">相似度 ' + ((m.score || 0) * 100).toFixed(1) + '%</span></div>' +
+          '<div class="res-meta">' + (meta.join(' · ') || '暂无元信息') + '</div>' +
+          '<div class="res-preview">' + preview + '</div>' +
+          '<div class="res-actions">' +
+            '<a class="btn btn-sm btn-primary" href="/questions?qid=' + encodeURIComponent(qid) + '">查看详情</a>' +
+            '<a class="btn btn-sm" href="/questions?qid=' + encodeURIComponent(qid) + '&tab=chat">问 AI</a>' +
+            '<button class="btn btn-sm btn-warn" data-correct-qid="' + qid + '">批改此题</button>' +
+          '</div>' +
+        '</div>';
+      el.querySelector('[data-correct-qid]').addEventListener('click', function(){
+        correctThis(this.getAttribute('data-correct-qid'));
+      });
+      container.appendChild(el);
+    });
+    if(lowMatch){
+      showUnmatched();
+    }else{
+      $('unmatchedCard').style.display = 'none';
+      setStatus('匹配完成', 'ok');
+    }
+  }
+
+  function showUnmatched(){
+    $('unmatchedCard').style.display = 'block';
+    setStatus('未找到高度相似的题目', 'info');
+  }
+
+  function addToBank(){
+    if(addingToBank) return;
+    if(!currentQueryId) return;
+    var btn = $('addToBankBtn');
+    $busy(btn, true, '加入中...');
+    addingToBank = true;
+    var bank = $('addBankName').value || 'default';
+    var payload = {question_id: currentQueryId, bank: bank};
+    if(lastOcrResult){
+      if(lastOcrResult.grade) payload.grade = lastOcrResult.grade;
+      if(lastOcrResult.tags && lastOcrResult.tags.length) payload.tags = lastOcrResult.tags;
+    }
+    window.$API.post('/api/search/add-to-bank', payload).then(function(){
+      $toast('已加入题库并启动处理', 'ok');
+      $('unmatchedCard').style.display = 'none';
+    }).catch(function(e){
+      $toast('加入题库失败：' + e.message, 'error');
+    }).finally(function(){
+      addingToBank = false;
+      $busy(btn, false);
+    });
+  }
+
+  function correctThis(matchedQuestionId){
+    if(!currentQueryId){$toast('请先上传图片','error');return}
+    var btn = document.querySelector('[data-correct-qid="'+matchedQuestionId+'"]');
+    if(btn) $busy(btn, true, '批改中...');
+    window.$API.post('/api/correction/search', {query_id: currentQueryId, matched_question_id: matchedQuestionId}).then(function(r){
+      showCorrectionModal(r);
+    }).catch(function(e){
+      $toast('批改失败：' + (e.message || '未知错误'), 'error');
+    }).finally(function(){
+      if(btn) $busy(btn, false);
+    });
+  }
+
+  function showCorrectionModal(r){
+    var score = (r.score || 0), max = (r.max_score || 0);
+    var pct = max ? Math.round(score / max * 100) : 0;
+    var html = '<div style="text-align:center;margin-bottom:var(--sp-3)">'+
+      '<div style="font-size:32px;font-weight:700;color:var(--accent)">'+$esc(String(score))+'<span style="font-size:16px;color:var(--text3)">/'+$esc(String(max))+'</span></div>'+
+      '<div style="font-size:var(--fs-base);color:var(--text2)">得分率 '+pct+'%</div></div>';
+    if(r.feedback) html += '<div style="margin-bottom:var(--sp-2)"><b>总评：</b>'+$esc(r.feedback)+'</div>';
+    if(r.error_analysis) html += '<div style="margin-bottom:var(--sp-2)"><b>错误分析：</b>'+$esc(r.error_analysis)+'</div>';
+    if(r.suggestions) html += '<div style="margin-bottom:var(--sp-2)"><b>学习建议：</b>'+$esc(r.suggestions)+'</div>';
+    if(r.points && r.points.length){
+      html += '<div style="font-size:var(--fs-base);margin-bottom:6px"><b>得分点：</b></div>';
+      r.points.forEach(function(p){
+        html += '<div style="display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid var(--border);font-size:var(--fs-base)">'+
+          '<span>'+$esc(p.title||'')+'</span>'+
+          '<span style="font-weight:600">'+$esc(String(p.score||0))+'/'+$esc(String(p.max_score||0))+'</span></div>';
+      });
+    }
+    html += '<div style="margin-top:var(--sp-3);text-align:center"><a class="btn btn-sm btn-primary" href="/correctCenter">查看批改中心</a></div>';
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.innerHTML = '<div class="modal" style="max-width:520px"><button class="modal-close" aria-label="关闭">'+window._closeIconSvg()+'</button><h2>批改结果</h2>'+html+'</div>';
+    modal.querySelector('.modal-close').onclick = function(){ modal.remove(); };
+    modal.onclick = function(e){ if(e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+
+  window.addEventListener('beforeunload', stopPolling);
+
+  document.addEventListener('DOMContentLoaded', function(){ init(); });
+})();
+</script>
+{% endblock %}

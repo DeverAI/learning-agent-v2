@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.paper-actions{width:min(100%,920px)}
+.preview-frame{min-height:clamp(420px,70dvh,760px)}
+@container main (max-width:620px){
+  #viewTabs{margin-inline:-12px;padding-inline:12px}
+  .preview-frame{border-radius:4px}
+}
+</style>
+<div class="header">
+  <div>
+    <a href="/papers" class="btn btn-sm" style="margin-bottom:6px">返回</a>
+    <h1 id="paperTitle" style="margin:0">加载中...</h1>
+  </div>
+  <div class="actions paper-actions">
+    <select id="dlFmt"><option value="html">HTML</option><option value="word">Word</option></select>
+    <select id="dlSize"><option value="A4">A4</option><option value="A3">A3</option></select>
+    <div class="paper-export-parts">
+      <label><input type="checkbox" id="dlPaper" checked> 试卷</label>
+      <label><input type="checkbox" id="dlScore" checked> 得分点</label>
+      <label><input type="checkbox" id="dlAnswer" checked> 答案</label>
+      <label><input type="checkbox" id="dlAnswerCard"> 答题卡</label>
+    </div>
+    <button class="btn btn-primary" onclick="dlCustom()">下载</button>
+    {% if enable_correct %}
+    <a href="/papers/{{ paper_id }}/correct" class="btn btn-info">批改试卷</a>
+    {% endif %}
+    <button class="btn btn-sm" onclick="copyParams()">复制参数</button>
+    <button class="btn btn-sm" onclick="regenerate(this)">复用</button>
+  </div>
+</div>
+
+<div class="card" id="paperMeta"></div>
+
+<div class="card" id="scoreCard" style="display:none">
+  <div class="card-title">成绩记录</div>
+  <div class="row" style="align-items:flex-end">
+    <div class="form-group"><label>你的得分</label><input type="number" id="userScore" placeholder="如: 85" min="0" max="150" step="0.5"></div>
+    <div class="form-group"><label>满分</label><input type="number" id="scoreTotal" value="100" min="0" max="150" step="1"></div>
+    <button class="btn btn-primary" onclick="saveScore(this)">保存成绩</button>
+  </div>
+  <div id="scoreMsg"></div>
+</div>
+
+<div class="tabs" id="viewTabs">
+  <div class="tab active" onclick="switchView('paper')">试卷</div>
+  <div class="tab" onclick="switchView('answer')">答案</div>
+  <div class="tab" onclick="switchView('answer_card')">答题卡</div>
+  <div class="tab" onclick="switchView('params')">组卷参数</div>
+</div>
+
+<div class="tab-content active" id="view-paper">
+  <iframe id="paperFrame" class="preview-frame"></iframe>
+</div>
+<div class="tab-content" id="view-answer">
+  <iframe id="answerFrame" class="preview-frame"></iframe>
+</div>
+<div class="tab-content" id="view-answer_card">
+  <iframe id="answerCardFrame" class="preview-frame"></iframe>
+  <div id="answerCardEmpty" style="display:none" class="empty">暂无答题卡</div>
+</div>
+<div class="tab-content" id="view-params">
+  <pre class="code" id="paramsCode"></pre>
+</div>
+
+<script>
+var paperId=window.location.pathname.split('/').pop();
+var paper=null;
+
+function reportPaperError(action, error, detail){
+  fetch('/api/log-paper-error',{method:'POST',headers:{'X-Auth-Token':window.$API._authToken||'Ntmhzsgtc','Content-Type':'application/json'},body:JSON.stringify({action:action, paper_id:paperId, error:error, detail:detail||''})}).catch(function(){});
+}
+
+async function init(){
+  try{
+    paper=await $API.get('/api/papers/'+paperId);
+    document.getElementById('paperTitle').textContent=paper.title;
+    document.getElementById('paperMeta').innerHTML='<div class="row"><div><b>学科: </b>'+$esc(paper.subject||'-')+'</div><div><b>年级: </b>'+$esc(paper.grade||'-')+'</div><div><b>题目数: </b>'+(paper.question_ids||[]).length+'</div><div><b>类型: </b>'+$type(paper.paper_type)+'</div><div><b>时间: </b>'+$fmt(paper.created_at)+'</div>'+(paper.user_score!=null?'<div><b>得分: </b>'+$esc(paper.user_score)+'</div>':'')+'</div>';
+    document.getElementById('paperFrame').srcdoc=paper.paper_html;
+    document.getElementById('answerFrame').srcdoc=paper.answer_html||'<p>无答案</p>';
+    document.getElementById('paramsCode').textContent=JSON.stringify(paper.generation_params||{},null,2);
+    document.getElementById('scoreCard').style.display='block';
+    if(paper.user_score){document.getElementById('userScore').value=paper.user_score}
+    // Load answer card
+    var acUrl='/api/papers/'+paperId+'/download?fmt=html&parts=answer_card';
+    var acResp=await fetch(acUrl);
+    if(acResp.ok){
+      var acHtml=await acResp.text();
+      document.getElementById('answerCardFrame').srcdoc=acHtml;
+    }else{
+      document.getElementById('answerCardFrame').style.display='none';
+      document.getElementById('answerCardEmpty').style.display='block';
+    }
+  }catch(e){
+    $toast('试卷加载失败: '+e.message, 'error');
+    reportPaperError('init', e.message, 'api_get_paper_failed');
+  }
+}
+
+function switchView(v){
+  ['paper','answer','answer_card','params'].forEach(function(t,i){
+    document.getElementById('view-'+t).classList.toggle('active',t===v);
+    document.querySelectorAll('#viewTabs .tab')[i].classList.toggle('active',t===v);
+  });
+}
+
+async function saveScore(btn){
+  var score=parseFloat(document.getElementById('userScore').value);
+  var total=parseFloat(document.getElementById('scoreTotal').value)||100;
+  if(!score&&score!==0){$toast('请输入得分','error');return}
+  $busy(btn,true,'保存中...');
+  try{
+    await $API.post('/api/profile/score',{paper_id:paperId,title:paper.title,score:score,total:total});
+    document.getElementById('scoreMsg').innerHTML='<div class="alert">已记录: '+score+'/'+total+'</div>';
+    $toast('成绩已保存','ok');
+  }catch(e){$toast(e.message,'error');$busy(btn,false)}
+}
+
+function dlCustom(){
+  var fmt=document.getElementById('dlFmt').value;
+  var size=document.getElementById('dlSize').value;
+  var wantsPaper=document.getElementById('dlPaper').checked;
+  var wantsScore=document.getElementById('dlScore').checked;
+  var wantsAnswer=document.getElementById('dlAnswer').checked;
+  var wantsCard=document.getElementById('dlAnswerCard').checked;
+  // 至少选一个
+  if(!wantsPaper && !wantsScore && !wantsAnswer && !wantsCard){
+    $toast('请至少选择一项下载内容','error');return;
+  }
+  // 后端只支持单 mode 下载；多选时按以下顺序分别下载
+  // 试卷 → 答案 → 得分点 → 答题卡，互不冲突；得分点优先于答案展示完整解题过程
+  var baseUrl='/api/papers/'+paperId+'/download?fmt='+fmt+'&paper_size='+size;
+  var opens=0;
+  var firstLabel='';
+  if(wantsPaper){
+    window.open(baseUrl+'&mode=paper','_blank');
+    opens++;if(!firstLabel)firstLabel='试卷';
+  }
+  if(wantsAnswer){
+    window.open(baseUrl+'&mode=qa','_blank');
+    opens++;if(!firstLabel)firstLabel='标答';
+  }
+  if(wantsScore){
+    window.open(baseUrl+'&mode=score','_blank');
+    opens++;if(!firstLabel)firstLabel='得分点';
+  }
+  if(wantsCard){
+    window.open(baseUrl+'&mode=answer_card','_blank');
+    opens++;if(!firstLabel)firstLabel='答题卡';
+  }
+  if(opens>1){
+    $toast('已为您分 '+opens+' 个文件下载（'+firstLabel+' 等）','ok');
+  }
+}
+
+async function regenerate(btn){
+  if(!await $confirm('复用当前参数重新生成试卷？'))return;
+  $busy(btn,true,'生成中...');
+  try{var r=await $API.post('/api/papers/'+paperId+'/regenerate');window.location.href='/papers/'+r.paper_id}catch(e){
+    $toast(e.message,'error');$busy(btn,false);
+    reportPaperError('regenerate', e.message, '');
+  }
+}
+
+function copyParams(){
+  navigator.clipboard.writeText(JSON.stringify(paper?paper.generation_params||{}:{},null,2));
+  $toast('参数已复制','ok');
+}
+
+document.addEventListener('DOMContentLoaded', function(){ init(); });
+</script>
+{% endblock %}
+

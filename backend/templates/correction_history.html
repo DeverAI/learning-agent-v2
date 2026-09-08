@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.ch-tabs{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-4);flex-wrap:wrap}
+.ch-tab{padding:7px 16px;border-radius:20px;border:1px solid var(--border);background:var(--card-bg);color:var(--text2);font-size:var(--fs-base);cursor:pointer;transition:all .15s var(--ease-out);min-height:44px;display:inline-flex;align-items:center}
+.ch-tab:hover{border-color:var(--accent);color:var(--accent)}
+.ch-tab.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.ch-list{display:flex;flex-direction:column;gap:var(--sp-2)}
+.ch-item{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-xl);padding:var(--sp-3);display:flex;align-items:center;gap:var(--sp-3);transition:all .15s var(--ease-out)}
+.ch-item:hover{border-color:var(--accent);box-shadow:0 2px 10px var(--accent-glow)}
+.ch-item .ci-time{font-size:var(--fs-sm);color:var(--text3);width:140px;flex-shrink:0}
+.ch-item .ci-score{font-size:var(--fs-md);font-weight:700;color:var(--text);width:90px;flex-shrink:0}
+.ch-item .ci-preview{font-size:var(--fs-base);color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-item .ci-meta{font-size:var(--fs-xs);color:var(--text3);margin-top:2px}
+.ch-item .ci-btn{font-size:var(--fs-sm);padding:5px 12px;border-radius:var(--r-sm);border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;flex-shrink:0;min-height:36px;display:inline-flex;align-items:center}
+.ch-item .ci-btn:hover{background:var(--accent);color:var(--on-accent)}
+.ch-empty{text-align:center;padding:50px 20px;color:var(--text3);font-size:var(--fs-md)}
+.ch-loading{display:flex;align-items:center;gap:var(--sp-2);padding:30px;justify-content:center;color:var(--text2);font-size:var(--fs-base)}
+.ch-section{margin-bottom:var(--sp-4)}
+.ch-section h3{font-size:var(--fs-md);font-weight:600;margin-bottom:var(--sp-2)}
+@media(max-width:768px){
+  .ch-item{flex-wrap:wrap}
+  .ch-item .ci-time{width:auto;flex:1 1 100%}
+  .ch-item .ci-score{width:auto}
+}
+</style>
+
+<div class="header">
+  <div>
+    <a href="/correctCenter" class="btn btn-sm" style="margin-bottom:6px">返回批改中心</a>
+    <h1>批改历史</h1>
+  </div>
+</div>
+
+<div class="ch-tabs">
+  <button class="ch-tab active" data-type="all">全部</button>
+  <button class="ch-tab" data-type="single">单题</button>
+  <button class="ch-tab" data-type="page">单页</button>
+  <button class="ch-tab" data-type="paper">试卷</button>
+</div>
+
+<div class="ch-list" id="listBox">
+  <div class="ch-loading"><span class="spin"></span><span>加载中...</span></div>
+</div>
+
+<script>
+(function(){
+  var currentType = 'all';
+  var loading = false;
+
+  function loadList(){
+    if(loading) return;
+    loading = true;
+    var box = document.getElementById('listBox');
+    box.innerHTML = '<div class="ch-loading"><span class="spin"></span><span>加载中...</span></div>';
+    window.$API.get('/api/correction/history?type=' + encodeURIComponent(currentType) + '&limit=100').then(function(list){
+      loading = false;
+      if(!list || !list.length){
+        box.innerHTML = '<div class="ch-empty">暂无批改记录<br><a href="/correctCenter" style="color:var(--accent);font-size:var(--fs-base)">去批改中心</a></div>';
+        return;
+      }
+      var html = '';
+      list.forEach(function(it){
+        var tag = it.source_type === 'paper' ? '<span class="ci-tag paper">试卷</span>' : (it.source_type === 'page' ? '<span class="ci-tag page">单页</span>' : '<span class="ci-tag single">单题</span>');
+        var scoreTxt = $esc((it.score == null ? '-' : it.score) + ' / ' + (it.max_score == null ? '-' : it.max_score));
+        var preview = $esc(it.question_preview || '无预览');
+        var metaParts = [];
+        if(it.subject) metaParts.push($esc(it.subject));
+        if(it.grade) metaParts.push($esc(it.grade));
+        var meta = metaParts.length ? '<div class="ci-meta">' + metaParts.join(' · ') + '</div>' : '';
+        html += '<div class="ch-item">' +
+          '<div class="ci-time">' + $esc($fmt(it.created_at)) + '</div>' +
+          tag +
+          '<div class="ci-score">' + scoreTxt + '</div>' +
+          '<div class="ci-preview">' + preview + meta + '</div>' +
+          '<button class="ci-btn" data-id="' + $esc(it.id) + '">查看详情</button>' +
+          '</div>';
+      });
+      box.innerHTML = html;
+      box.querySelectorAll('.ci-btn').forEach(function(b){
+        b.addEventListener('click', function(){ openDetail(b.getAttribute('data-id')); });
+      });
+    }).catch(function(e){
+      loading = false;
+      box.innerHTML = '<div class="ch-empty">加载失败：' + $esc(e.message || '未知错误') + '</div>';
+    });
+  }
+
+  function openDetail(cid){
+    if(!cid) return;
+    // 关闭已有详情弹层
+    var existing = document.getElementById('detailOverlay');
+    if(existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay show';
+    overlay.id = 'detailOverlay';
+    overlay.innerHTML = '<div class="modal" style="max-width:720px"><button class="modal-close" aria-label="关闭">'+window._closeIconSvg()+'</button><div class="ch-loading"><span class="spin"></span><span>加载中...</span></div></div>';
+    document.body.appendChild(overlay);
+    var body = overlay.querySelector('.modal');
+    function close(){ overlay.remove(); }
+    overlay.querySelector('.modal-close').onclick = close;
+    overlay.onclick = function(e){ if(e.target === overlay) close(); };
+    window.$API.get('/api/correction/' + encodeURIComponent(cid)).then(function(r){
+      renderDetail(body, r);
+    }).catch(function(e){
+      body.innerHTML = '<button class="modal-close" aria-label="关闭">'+window._closeIconSvg()+'</button><div class="ch-empty">加载详情失败：' + $esc(e.message || '未知错误') + '</div>';
+      body.querySelector('.modal-close').onclick = close;
+    });
+  }
+
+  function renderDetail(modalBox, r){
+    var score = r.score || 0;
+    var max = r.max_score || 0;
+    var pct = max > 0 ? Math.round(score / max * 100) : 0;
+    var points = r.points || [];
+    var pointsHtml = '';
+    if(!points.length){
+      pointsHtml = '<div class="empty-state">无得分点明细</div>';
+    } else {
+      points.forEach(function(p, idx){
+        var cls = 'point-card';
+        if(p.score >= p.max_score && p.max_score > 0) cls += ' hit';
+        else if(p.score > 0) cls += ' partial';
+        else cls += ' miss';
+        pointsHtml += '<div class="' + cls + '">' +
+          '<div class="point-title">' + (idx+1) + '. ' + $esc(p.title || '') + '</div>' +
+          '<div class="point-score">得分：' + (p.score||0) + ' / ' + (p.max_score||0) + '</div>' +
+          '<div class="point-comment">' + $esc(p.comment || '') + '</div>' +
+          '</div>';
+      });
+    }
+    var metaBits = [];
+    if(r.subject) metaBits.push($esc(r.subject));
+    if(r.grade) metaBits.push($esc(r.grade));
+    if(r.created_at) metaBits.push($esc($fmt(r.created_at)));
+    var matchedLink = r.matched_question_id
+      ? '<a href="/questions?qid=' + encodeURIComponent(r.matched_question_id) + '" target="_blank" style="color:var(--accent)">查看原题</a>'
+      : '';
+    modalBox.innerHTML =
+      '<button class="modal-close" aria-label="关闭">'+window._closeIconSvg()+'</button>' +
+      '<h2 style="font-size:var(--fs-xl);margin-bottom:var(--sp-2)">批改报告</h2>' +
+      '<div style="font-size:var(--fs-sm);color:var(--text3);margin-bottom:var(--sp-4)">' + (metaBits.join(' · ') || '-') + (matchedLink ? ' · ' + matchedLink : '') + '</div>' +
+      '<div class="score-ring" style="--pct:' + pct + '"><div class="score-ring-inner"><div class="score-ring-num">' + $esc(String(score)) + '</div><div class="score-ring-label">得分</div></div></div>' +
+      '<div style="text-align:center;font-size:var(--fs-base);color:var(--text2);margin-bottom:var(--sp-4)">满分 ' + $esc(String(max)) + '</div>' +
+      '<div class="ch-section"><h3>得分点明细</h3>' + pointsHtml + '</div>' +
+      '<div class="ch-section"><h3>整体评语</h3><div class="report-text">' + $esc(r.feedback || '（无）') + '</div></div>' +
+      '<div class="ch-section"><h3>错因分析</h3><div class="report-err">' + $esc(r.error_analysis || '（无）') + '</div></div>' +
+      '<div class="ch-section"><h3>改进建议</h3><div class="report-ok">' + $esc(r.suggestions || '（无）') + '</div></div>';
+    modalBox.querySelector('.modal-close').onclick = function(){ document.getElementById('detailOverlay').remove(); };
+    if(window._renderMathInElement){
+      setTimeout(function(){ _renderMathInElement(modalBox); }, 50);
+    }
+  }
+
+  document.querySelectorAll('.ch-tab').forEach(function(t){
+    t.addEventListener('click', function(){
+      document.querySelectorAll('.ch-tab').forEach(function(x){ x.classList.remove('active'); });
+      t.classList.add('active');
+      currentType = t.getAttribute('data-type');
+      loadList();
+    });
+  });
+
+  document.addEventListener('DOMContentLoaded', function(){ loadList(); });
+})();
+</script>
+{% endblock %}

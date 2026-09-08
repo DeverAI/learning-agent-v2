@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <h1>题目本</h1>
+  <select id="bankFilter" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px" onchange="_page=0;loadQuestions()">
+    <option value="">全部题库</option>
+  </select>
+</div>
+
+<!-- 题库管理 -->
+<div class="card">
+  <div class="card-title">题库管理</div>
+  <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <input type="text" id="newBankName" placeholder="新建题库名称" style="flex:1;min-width:120px">
+    <button class="btn btn-primary btn-sm" onclick="createBank()" title="不创建空题库（题库由题目派生），仅预填上传目标名">设为目标</button>
+    <button class="btn btn-sm" id="renameBtn" onclick="renameBank()" disabled>重命名</button>
+    <button class="btn btn-sm" style="color:var(--err)" id="deleteBtn" onclick="deleteBank()" disabled>删除题库</button>
+  </div>
+  <div id="tagSection" style="display:none;margin-bottom:8px">
+    <b>标签：</b><span id="tagList" style="display:inline-flex;gap:4px;flex-wrap:wrap;vertical-align:middle"></span>
+    <span style="margin-left:8px"><input type="text" id="newTagName" placeholder="新标签" style="width:80px;padding:2px 6px;font-size:12px" onkeydown="if(event.key==='Enter')addTag()"><button class="btn btn-sm" onclick="addTag()" style="padding:2px 8px;font-size:11px">添加</button></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">上传题目</div>
+  <div class="row" style="align-items:flex-start">
+    <div style="flex:1;min-width:240px">
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+      <div class="upload-zone" id="dropZone" role="button" tabindex="0" aria-label="选择题目图片">
+        <p>点击或拖拽图片上传（支持多张）</p>
+        <p class="hint">JPG / PNG / WEBP</p>
+      </div>
+      <div id="stagedList" style="margin-top:12px"></div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <div class="form-group"><label>题库</label><input type="text" id="uploadBank" list="bankDatalist" placeholder="选择或输入新题库" value="default"><datalist id="bankDatalist"></datalist></div>
+      <div class="form-group"><label>解题思路提示 (可选)</label><textarea id="userHint" placeholder="告诉AI这道题可能需要怎么解"></textarea></div>
+      <div class="form-group"><label>知识点标签 (可选, 逗号分隔)</label><input type="text" id="userTags" placeholder="如: 二次函数, 不等式"></div>
+      <div class="form-group"><label>年级 (可选)</label><input type="text" id="userGrade" placeholder="如: 高中二年级"></div>
+      <div class="form-group"><label>上传模式</label>
+        <select id="uploadMode" onchange="onUploadModeChange()">
+          <option value="one_per_image" selected>每张图片一道题（默认）</option>
+          <option value="one_question_multi_image">多张图片组成一道题</option>
+          <option value="auto_split">自动识别并拆分多题</option>
+        </select>
+        <span class="hint" id="uploadModeHint">每张图片分别建立一道题</span>
+      </div>
+    </div>
+  </div>
+  <div id="uploadStatus" style="margin-top:10px"></div>
+  <button class="btn btn-primary btn-lg" id="processBtn" style="width:100%;margin-top:8px" disabled>请先上传图片</button>
+</div>
+
+<div class="card">
+  <div class="card-title">筛选</div>
+  <div class="row">
+    <div class="form-group"><label>学科</label><select id="filterSubject"><option value="">全部</option></select></div>
+    <div class="form-group"><label>年级</label><select id="filterGrade"><option value="">全部</option></select></div>
+    <div class="form-group"><label>知识点</label><select id="filterTags" multiple><option value="">全部</option></select></div>
+    <div class="form-group"><label>状态</label><select id="filterStatus"><option value="">全部</option><option value="done">已完成</option><option value="staged">待处理</option><option value="pending">排队中</option><option value="error">失败</option></select></div>
+    <div class="form-group"><label>关键词</label><input type="text" id="filterKeyword" placeholder="搜索题目内容"></div>
+  </div>
+  <button class="btn btn-primary" id="searchBtn">搜索</button>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span class="card-title" style="margin:0">题目列表</span>
+    <div class="actions" style="margin:0">
+      <button class="btn btn-sm" id="refreshBtn">刷新</button>
+      <button class="btn btn-sm" id="retryAllBtn" style="display:none">重试全部失败</button>
+    </div>
+  </div>
+  <div id="questionTable"></div>
+  <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+    <select id="pageSize" onchange="_page=0;loadQuestions()" style="width:auto;font-size:12px">
+      <option value="10">10条/页</option>
+      <option value="20" selected>20条/页</option>
+      <option value="50">50条/页</option>
+    </select>
+    <div id="pagination"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="detailModal">
+  <div class="modal" style="max-width:960px">
+    <button class="modal-close" id="detailClose" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <h2>题目详情</h2>
+    <div class="actions" style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-sm" id="detailRetry">重新处理</button>
+      <button class="btn btn-sm" style="display:none" id="detailJump" onclick="jumpPaper()">加入组卷</button>
+      <button class="btn btn-sm btn-danger" style="display:none" id="btnFlagWrong" onclick="flagQuestion('wrong_answer')" title="标记这道题答案有错误">标记答案错误</button>
+      <button class="btn btn-sm btn-warn" style="display:none" id="btnFlagMissing" onclick="flagQuestion('missing_diagram')" title="标记这道题缺少示意图">标记缺图</button>
+      <button class="btn btn-sm" style="display:none" id="btnChallenge" onclick="runQuestionChallenge()" title="让独立解题 AI 主动检查题干、图形与参考答案是否冲突">AI 质疑题目</button>
+      <button class="btn btn-sm" style="display:none" id="btnResolve" onclick="toggleResolved()" title="锁定为已解决：AI 不再自动修改">锁定为已解决</button>
+      <span id="auditBadge" class="tag" style="display:none;background:var(--warn-bg);color:var(--warn)"></span>
+    </div>
+    <div id="challengePanel" class="alert" style="display:none;margin:10px 0;border-width:1px">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+        <strong id="challengeTitle"></strong><span id="challengeConfidence" class="tag"></span>
+      </div>
+      <div id="challengeReasons" style="margin-top:6px"></div>
+      <div id="challengeEvidence" style="margin-top:6px;font-size:12px;color:var(--text2)"></div>
+      <div id="challengeAction" style="margin-top:6px;font-size:12px"></div>
+    </div>
+    <div class="tabs" id="detailTabs">
+      <div class="tab active" data-tab="question">题面</div>
+      <div class="tab" data-tab="standard">标答</div>
+      <div class="tab" data-tab="score">得分点</div>
+      <div class="tab" data-tab="answer">解答过程</div>
+      {% if enable_structure_graph %}
+      <div class="tab" data-tab="structure">结构梳理</div>
+      {% endif %}
+      {% if enable_comparison_mode %}
+      <div class="tab" data-tab="comparison">对比模式</div>
+      {% endif %}
+      <div class="tab" data-tab="info">信息</div>
+      <div class="tab" data-tab="diagrams">示意图</div>
+      <div class="tab" data-tab="edit">编辑</div>
+      <div class="tab" data-tab="chat">AI助手</div>
+    </div>
+    <div class="tab-content active" id="tab-question"></div>
+    <div class="tab-content" id="tab-standard"></div>
+    <div class="tab-content" id="tab-score"></div>
+    <div class="tab-content" id="tab-answer"></div>
+    {% if enable_structure_graph %}
+    <div class="tab-content" id="tab-structure"></div>
+    {% endif %}
+    {% if enable_comparison_mode %}
+    <div class="tab-content" id="tab-comparison"></div>
+    {% endif %}
+    <div class="tab-content" id="tab-info"></div>
+    <div class="tab-content" id="tab-diagrams"></div>
+    <div class="tab-content" id="tab-edit">
+      <div class="form-group">
+        <label>题面 <button class="btn btn-sm" onclick="copyText('editQuestionHtml')">复制</button></label>
+        <textarea id="editQuestionHtml" rows="6" style="font-family:monospace;font-size:13px"></textarea>
+      </div>
+      <div class="form-group">
+        <label>标准答案 <button class="btn btn-sm" onclick="copyText('editStandardAnswer')">复制</button></label>
+        <textarea id="editStandardAnswer" rows="3" style="font-family:monospace;font-size:13px"></textarea>
+      </div>
+      <div class="form-group">
+        <label>解答 <button class="btn btn-sm" onclick="copyText('editAnswerHtml')">复制</button>
+             <button class="btn btn-sm" onclick="insertDiagramAt('editAnswerHtml')">插入图</button></label>
+        <textarea id="editAnswerHtml" rows="8" style="font-family:monospace;font-size:13px"></textarea>
+      </div>
+      <div class="form-group">
+        <label>得分点 <button class="btn btn-sm" onclick="copyText('editScorePoints')">复制</button></label>
+        <textarea id="editScorePoints" rows="4" style="font-family:monospace;font-size:13px"></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="saveEdit(this)">保存修改</button>
+    </div>
+    <div class="tab-content" id="tab-chat">
+      <div id="chatMsgs" style="max-height:300px;overflow:auto;margin-bottom:8px;font-size:13px"></div>
+      <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="chatAI('重新用标准格式生成')">标准格式</button>
+        <button class="btn btn-sm" onclick="chatAI('出一道同类但更难的题')">更难类题</button>
+        <button class="btn btn-sm" onclick="chatAI('出一道同类但更简单的题')">更简单</button>
+        <button class="btn btn-sm" onclick="chatAI('修改变量名和数据，不改题型')">换数据</button>
+      </div>
+      <div style="display:flex;gap:4px">
+        <input type="text" id="chatInput" placeholder="输入消息..." style="flex:1" onkeydown="if(event.key==='Enter')chatAI()">
+        <button class="btn btn-primary btn-sm" onclick="chatAI()">发送</button>
+        <button class="btn btn-sm" id="chatApply" style="display:none" onclick="applyRegen()">应用</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.__QUESTIONS_CFG__ = {
+  enableStructureGraph: {{ 'true' if enable_structure_graph else 'false' }},
+  enableComparisonMode: {{ 'true' if enable_comparison_mode else 'false' }}
+};
+</script>
+<script src="/static/js/questions.js?v=2"></script>
+<style>
+/* 暂存图片卡片网格：替代大量行内样式 */
+.staged-grid{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.staged-card{border:1px solid var(--border);border-radius:var(--r-md);padding:6px;width:140px;background:var(--subtle);position:relative}
+.staged-card img{width:126px;height:90px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--border);display:block}
+.staged-card .sc-num{font-size:var(--fs-xs);color:var(--text3);margin-top:4px;text-align:center}
+.staged-card .sc-remove{position:absolute;top:2px;right:2px;width:20px;height:20px;line-height:18px;padding:0;border:0;border-radius:50%;background:var(--err);color:var(--on-accent);font-size:12px;cursor:pointer}
+.staged-card .role-select{width:100%;margin-top:6px;font-size:var(--fs-sm);padding:4px}
+
+/* 结构梳理图工具栏：禁用全局按钮的涟漪/悬浮高亮，避免“雷霆高亮” */
+.sg-card{
+  width:100%;
+  height:clamp(390px,68vh,680px);
+  display:flex;
+  flex-direction:column;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--card-bg);
+  overflow:hidden;
+}
+.sg-toolbar{
+  min-height:46px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:7px 10px;
+  border-bottom:1px solid var(--border);
+  background:color-mix(in srgb,var(--card-bg) 94%,var(--accent) 6%);
+  flex-wrap:wrap;
+}
+.sg-toolbar-group{
+  display:flex;
+  gap:6px;
+  align-items:center;
+}
+.sg-zoom-value{
+  min-width:42px;
+  padding:2px 6px;
+  border-radius:999px;
+  background:var(--subtle);
+  color:var(--text3);
+  font-size:11px;
+  line-height:18px;
+  text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.sg-toolbar .btn,
+.sg-toolbar .btn:hover,
+.sg-toolbar .btn:active{
+  transform:none;
+  box-shadow:none;
+}
+.sg-toolbar .btn::after{
+  display:none;
+}
+.sg-viewport{
+  flex:1;
+  position:relative;
+  overflow:hidden;
+  background:var(--paper-bg);
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.sg-gesture-hint{
+  position:absolute;
+  right:10px;
+  bottom:8px;
+  padding:4px 8px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:color-mix(in srgb,var(--card-bg) 86%,transparent);
+  color:var(--text3);
+  font-size:11px;
+  line-height:1.2;
+  pointer-events:none;
+  backdrop-filter:blur(4px);
+}
+.sg-viewport svg,
+.sg-inner svg{
+  max-width:none !important;
+  width:auto !important;
+  height:auto !important;
+  display:block;
+}
+.sg-viewport svg{background:var(--paper-bg)!important}
+.sg-toolbar .btn:hover{
+  background:transparent;
+  border-color:var(--border);
+}
+.sg-toolbar .btn-info{
+  background:var(--info-bg);
+  color:var(--info);
+  border-color:color-mix(in srgb,var(--info) 45%,var(--border));
+}
+.sg-toolbar .btn-info:hover{
+  background:var(--info-bg);
+  border-color:var(--info);
+}
+.sg-toolbar .btn-warn{
+  background:var(--warn-bg);
+  color:var(--warn);
+  border-color:color-mix(in srgb,var(--warn) 45%,var(--border));
+}
+.sg-toolbar .btn-warn:hover{
+  background:var(--warn-bg);
+  border-color:var(--warn);
+}
+[data-theme="dark"] .sg-toolbar .btn-info{
+  background:var(--info-bg);
+  color:var(--info);
+  border-color:color-mix(in srgb,var(--info) 45%,var(--border));
+}
+[data-theme="dark"] .sg-toolbar .btn-info:hover{
+  background:var(--info-bg);
+  border-color:var(--info);
+}
+[data-theme="dark"] .sg-toolbar .btn-warn{
+  background:var(--warn-bg);
+  color:var(--warn);
+  border-color:color-mix(in srgb,var(--warn) 45%,var(--border));
+}
+[data-theme="dark"] .sg-toolbar .btn-warn:hover{
+  background:var(--warn-bg);
+  border-color:var(--warn);
+}
+[data-theme="dark"] .sg-viewport{
+  background:var(--paper-bg);
+}
+[data-theme="dark"] .sg-gesture-hint{
+  border-color:var(--border);
+  background:color-mix(in srgb,var(--card-bg) 86%,transparent);
+  color:var(--text3);
+}
+@container (max-width:700px){
+  .sg-card{height:clamp(360px,62vh,560px)}
+  .sg-toolbar{align-items:stretch}
+  .sg-toolbar-group{flex:1;justify-content:flex-start}
+  .sg-toolbar-group:last-child{justify-content:flex-end}
+  .sg-gesture-hint{display:none}
+  .cmp-container:not(:fullscreen){flex-direction:column!important;height:auto!important;min-height:620px}
+  .cmp-container:not(:fullscreen) .cmp-left,
+  .cmp-container:not(:fullscreen) .cmp-right{width:100%!important;min-width:0!important;flex:1 1 300px!important;border-left:0!important;border-right:0!important}
+  .cmp-container:not(:fullscreen) .cmp-left{border-bottom:1px solid var(--border)!important}
+  .cmp-container:not(:fullscreen) .cmp-divider{width:100%!important;height:6px!important;cursor:default!important;pointer-events:none}
+  #detailModal .actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))}
+  #detailModal .actions .btn{width:100%;justify-content:center}
+}
+/* 详情弹窗顶部操作按钮也去涟漪/悬浮高亮 */
+#detailModal .actions .btn::after{
+  display:none;
+}
+#detailModal .actions .btn,
+#detailModal .actions .btn:hover,
+#detailModal .actions .btn:active{
+  transform:none;
+  box-shadow:none;
+}
+#detailModal .actions .btn:hover{
+  background:transparent;
+}
+/* 题目对比模式：左右互换 */
+.cmp-swapped{
+  flex-direction: row-reverse !important;
+}
+.cmp-swapped .cmp-left{
+  border-right:none;
+  border-left:1px solid var(--border);
+}
+/* 对比模式全屏 */
+.cmp-container:fullscreen{
+  height:100vh !important;
+  width:100vw !important;
+  border-radius:0;
+}
+.cmp-container:fullscreen .cmp-left,
+.cmp-container:fullscreen .cmp-right{
+  height:100%;
+}
+.cmp-purpose{
+  font-size:12px;
+  font-weight:600;
+}
+.cmp-region-block{
+  transition:box-shadow .2s;
+}
+</style>
+{% endblock %}

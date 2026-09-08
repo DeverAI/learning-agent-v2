@@ -1,0 +1,829 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* 仅保留 notes.html 专属样式，公共组件（.upload-zone/.upload-previews/.upload-preview/
+     .upload-status/.empty-state/.tab-content/.tag/.btn-danger）统一引用 theme.css */
+  .notes-layout{display:flex;flex-wrap:wrap;gap:var(--sp-5);align-items:flex-start;container-type:inline-size;container-name:notes}
+  .notes-main{flex:999 1 540px;min-width:min(100%,320px)}
+  .notes-sidebar{width:auto;max-width:360px;flex:1 1 300px;position:sticky;top:var(--sp-5)}
+  .note-card{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);margin-bottom:var(--sp-2);cursor:pointer;transition:box-shadow .15s var(--ease-out),border-color .15s var(--ease-out);background:var(--card-bg)}
+  .note-card:hover{box-shadow:var(--shadow);border-color:var(--accent)}
+  .note-card .note-title{font-size:var(--fs-lg);font-weight:600;margin-bottom:var(--sp-1)}
+  .note-card .note-meta{font-size:var(--fs-sm);color:var(--text2);display:flex;gap:var(--sp-2);align-items:center}
+  .note-card .note-excerpt{font-size:var(--fs-base);color:var(--text2);margin-top:var(--sp-1);max-height:40px;overflow:hidden}
+  .subject-group{margin-bottom:var(--sp-4)}
+  .subject-label{font-size:var(--fs-base);font-weight:700;color:var(--text2);padding:var(--sp-1) 0 var(--sp-1);border-bottom:1px solid var(--border);margin-bottom:var(--sp-2);display:flex;justify-content:space-between}
+  .filter-row{display:flex;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-4);flex-wrap:wrap}
+  .filter-row select,.filter-row input{padding:6px 10px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:var(--fs-base);background:var(--card-bg);min-width:100px}
+  .detail-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--sp-4);flex-wrap:wrap;gap:var(--sp-2)}
+  .detail-actions{display:flex;gap:var(--sp-1);flex-wrap:wrap}
+  .source-images img{max-width:120px;max-height:120px;object-fit:contain;border:1px solid var(--border);border-radius:var(--r-sm);margin:var(--sp-1)}
+  .typical-q{border:1px solid var(--border);border-radius:var(--r-sm);padding:var(--sp-3);margin-bottom:var(--sp-3);background:var(--subtle)}
+  .typical-q .q-stem{font-weight:600;margin-bottom:var(--sp-1)}
+  .typical-q .q-answer{color:var(--ok);font-size:var(--fs-base)}
+  .typical-q .q-analysis{color:var(--text2);font-size:var(--fs-sm);margin-top:var(--sp-1)}
+  .diagram-link{display:inline-block;padding:4px 10px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:var(--fs-sm);cursor:pointer;background:var(--subtle);text-decoration:none;color:var(--text)}
+  .diagram-link:hover{background:var(--hover)}
+  .note-badge{font-size:var(--fs-xs);padding:1px 5px;border-radius:var(--r-sm)}
+  .note-badge-diag{background:var(--accent-soft);color:var(--accent)}
+  .note-badge-ai{background:var(--ok-bg);color:var(--ok)}
+  .tree-card{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);margin-bottom:var(--sp-4);background:var(--card-bg)}
+  .tree-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tree-card svg{width:100%;height:300px;background:var(--subtle);border-radius:var(--r-sm)}
+  .tree-node{cursor:pointer}
+  .kg-node{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:12px;transition:background .15s}
+  .kg-node:hover{background:var(--hover)}
+  .kg-node.active{border-color:var(--accent);background:var(--accent-soft)}
+  .kg-node-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;border:1px solid var(--border)}
+  .kg-node-icon.concept{background:var(--accent);color:#fff}
+  .kg-node-icon.person{background:var(--accent-soft);color:var(--accent)}
+  .kg-node-icon.work{background:var(--ok-bg);color:var(--ok)}
+  .kg-node-icon.era{background:var(--warn-bg);color:var(--warn)}
+  .kg-node-icon.term{background:var(--subtle);color:var(--text2)}
+  .kg-node-icon.event{background:var(--ok-bg);color:var(--ok)}
+  .kg-node-icon.location{background:var(--accent-soft);color:var(--accent)}
+  .kg-node-icon.feature{background:var(--subtle);color:var(--text2)}
+  .kg-core-node{border-left:3px solid var(--accent);padding-left:8px}
+  .kg-support-node{opacity:.85;font-size:11px}
+  .kg-node-label{flex:1;font-weight:500}
+  .kg-node-weight{font-size:10px;color:var(--text3);background:var(--subtle);padding:1px 6px;border-radius:8px}
+  .kg-node-desc{font-size:11px;color:var(--text3);margin-top:2px}
+  .kg-cluster{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:12px;font-size:11px;margin:2px;cursor:pointer;background:var(--subtle)}
+  .kg-cluster:hover{background:var(--hover)}
+  @container notes (max-width:760px){
+    .notes-sidebar{max-width:none;position:static;order:-1}
+    .filter-row>*{min-height:44px}
+    .tree-scroll svg{width:680px;max-width:none;height:300px}
+  }
+  @container (max-width:680px){
+    .detail-hd{display:block}
+    .detail-actions{margin-top:var(--sp-3);display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .detail-actions .btn{width:100%}
+    #noteModalTabs{margin-inline:-14px;padding-inline:14px}
+    #tab-note-edit>div[style*="display:flex"]{flex-wrap:wrap}
+    #tab-note-edit>div[style*="display:flex"]>*{min-width:100%}
+    #refCurrentList>div,#refSearchResults>div{align-items:flex-start!important;flex-wrap:wrap;gap:var(--sp-2)}
+    #refCurrentList>div>span,#refSearchResults>div>div{min-width:0;flex:1 1 180px;overflow-wrap:anywhere}
+    .source-images img{max-width:calc(50% - 10px);height:auto}
+  }
+</style>
+
+<div class="header">
+  <h1>笔记整理</h1>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn btn-primary" id="btnTriggerUpload" onclick="triggerUpload(this)">上传图片整理</button>
+    <button class="btn" id="btnAutoOrganize" onclick="autoOrganize(this)">自动整合去重</button>
+    <button class="btn" id="btnAiGenerate" onclick="aiGenerateNotes(this)" title="根据全部已完成题目归纳解题套路并生成笔记">AI 生成笔记</button>
+    <button class="btn" id="btnToggleTree" onclick="toggleKnowledgeTree()">知识树</button>
+    <button class="btn" id="btnToggleKG" onclick="toggleKnowledgeGraph()">知识图谱</button>
+  </div>
+</div>
+
+<div class="notes-layout">
+  <!-- 左侧：笔记列表 -->
+  <div class="notes-main">
+    <div class="filter-row">
+      <select id="filterSubject" onchange="loadNotes()">
+        <option value="">全部学科</option>
+      </select>
+      <input type="text" id="filterSearch" placeholder="搜索笔记标题..." oninput="loadNotes()" style="flex:1;max-width:200px">
+    </div>
+    <div class="tree-card" id="knowledgeTreeCard" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b>知识树</b><button class="btn btn-sm" id="btnRefreshTree" onclick="loadKnowledgeTree(this)">刷新</button>
+      </div>
+      <div class="tree-scroll">
+        <div id="knowledgeTreeEmpty" style="color:var(--text2);font-size:12px">加载中...</div>
+        <svg id="knowledgeTreeSvg" viewBox="0 0 760 300" style="display:none"></svg>
+      </div>
+    </div>
+    <div class="tree-card" id="knowledgeGraphCard" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b>知识图谱</b>
+        <div style="display:flex;gap:4px">
+          <input type="text" id="kgSearchInput" placeholder="搜索知识点..." style="width:120px;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px" onkeydown="if(event.key==='Enter')searchKnowledgeGraph()">
+          <button class="btn btn-sm" onclick="searchKnowledgeGraph()">搜索</button>
+          <button class="btn btn-sm" id="btnRefreshKG" onclick="loadKnowledgeGraph(this)">刷新</button>
+        </div>
+      </div>
+      <div id="kgStats" style="font-size:11px;color:var(--text3);margin-bottom:6px"></div>
+      <div id="kgSearchResults" style="display:none;margin-bottom:8px"></div>
+      <div id="kgNetwork" style="display:none">
+        <div id="kgNetworkCenter" style="font-size:12px;margin-bottom:6px;padding:6px;background:var(--accent-soft);border-radius:4px"></div>
+        <div style="max-height:300px;overflow-y:auto">
+          <div id="kgNodes"></div>
+        </div>
+      </div>
+      <div id="kgEmpty" style="color:var(--text2);font-size:12px">暂无知识点，上传笔记后自动提取</div>
+      <div id="kgClusters" style="margin-top:8px"></div>
+    </div>
+    <div id="noteList">
+      <div class="empty-state"><span class="spin"></span> 加载中...</div>
+    </div>
+  </div>
+
+  <!-- 右侧：上传区域 -->
+  <div class="notes-sidebar">
+    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('fileInput').click()}" role="button" tabindex="0" aria-label="选择笔记图片">
+      <p style="font-size:var(--fs-md);font-weight:600">点击或拖放图片</p>
+      <p class="hint">支持 JPG/PNG，可多张同时上传</p>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple onchange="handleFiles(this.files)">
+      <div class="upload-previews" id="uploadPreview"></div>
+      <div id="uploadStatus" class="upload-status" style="display:none"></div>
+    </div>
+    <div class="form-group">
+      <label>学科提示（可选）</label>
+      <input type="text" id="subjectHint" placeholder="如：物理" class="form-input" style="width:100%">
+    </div>
+    <button class="btn btn-primary" style="width:100%" id="btnUpload" onclick="uploadImages()" disabled>开始整理</button>
+    <div class="card" style="margin-top:12px;padding:12px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">上传文档笔记</div>
+      <input type="file" id="textFileInput" accept=".txt,.md,.markdown,.docx,.pdf,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%">
+      <button class="btn" id="textUploadBtn" style="width:100%;margin-top:8px" onclick="uploadTextNote()">上传并整理</button>
+    </div>
+  </div>
+</div>
+
+<!-- 笔记详情 Modal -->
+<div class="modal-overlay" id="noteModal" style="display:none" onclick="if(event.target===this)closeNoteModal()">
+  <div class="modal" style="max-width:800px">
+    <div class="detail-hd">
+      <h2 id="noteModalTitle" style="margin:0"></h2>
+      <div class="detail-actions">
+        <button class="btn btn-sm" onclick="downloadNote()">下载 MD</button>
+        <button class="btn btn-sm" onclick="openInEditor()" id="btnOpenEditor" style="display:none">编辑模型图</button>
+        <button class="btn btn-sm" onclick="_noteTabSwitch('note-edit')">编辑</button>
+        <button class="btn btn-sm btn-danger" id="btnDeleteNote" onclick="deleteNote(this)">删除</button>
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
+      <span id="noteModalMeta"></span>
+    </div>
+    <div class="tabs" id="noteModalTabs" style="margin-bottom:12px">
+      <div class="tab active" data-tab="note-content" onclick="_noteTabSwitch('note-content')">内容</div>
+      <div class="tab" data-tab="note-questions" onclick="_noteTabSwitch('note-questions')">典型例题</div>
+      <div class="tab" data-tab="note-sources" onclick="_noteTabSwitch('note-sources')">来源图片</div>
+      <div class="tab" data-tab="note-references" onclick="_noteTabSwitch('note-references')">引用</div>
+      <div class="tab" data-tab="note-edit" onclick="_noteTabSwitch('note-edit')">编辑</div>
+    </div>
+    <div class="tab-content active" id="tab-note-content"></div>
+    <div class="tab-content" id="tab-note-questions"></div>
+    <div class="tab-content" id="tab-note-sources"></div>
+    <div class="tab-content" id="tab-note-references"></div>
+    <div class="tab-content" id="tab-note-edit">
+      <div class="form-group"><label>标题</label><input id="editNoteTitle" class="form-input"></div>
+      <div style="display:flex;gap:10px">
+        <div class="form-group" style="flex:1"><label>学科</label><input id="editNoteSubject" class="form-input"></div>
+        <div class="form-group" style="flex:1"><label>学段</label><input id="editNoteGrade" class="form-input" placeholder="如：初中、高中"></div>
+      </div>
+      <div class="form-group"><label>知识点（逗号分隔）</label><input id="editNoteTags" class="form-input"></div>
+      <div class="form-group"><label>内容（Markdown）</label><textarea id="editNoteContent" class="form-input" rows="10"></textarea></div>
+      <button class="btn btn-primary" id="btnSaveNoteEdit" onclick="saveNoteEdit(this)">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var _currentNoteId = null;
+var _currentNoteData = null;
+var _pendingImages = [];
+
+// ===== Tab Switch =====
+function _noteTabSwitch(tab){
+  ['note-content','note-questions','note-sources','note-references','note-edit'].forEach(function(t){
+    document.getElementById('tab-'+t).classList.toggle('active',t===tab);
+  });
+  var tabs = document.querySelectorAll('#noteModalTabs .tab');
+  tabs.forEach(function(el){
+    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
+  });
+  if(tab==='note-references') renderNoteReferences();
+}
+
+// ===== Upload =====
+var _uploadZone = document.getElementById('uploadZone');
+_uploadZone.addEventListener('dragover', function(e){e.preventDefault();_uploadZone.classList.add('dragover')});
+_uploadZone.addEventListener('dragleave', function(e){_uploadZone.classList.remove('dragover')});
+_uploadZone.addEventListener('drop', function(e){
+  e.preventDefault();_uploadZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+
+function handleFiles(files){
+  if(!files||!files.length)return;
+  files=Array.prototype.slice.call(files);
+  if(files.length>10){$toast('一次最多选择 10 张图片','error');return}
+  var preview = document.getElementById('uploadPreview');
+  preview.innerHTML = '';
+  _pendingImages = [];
+  var maxSize = 10*1024*1024; // 10MB per image
+  var readers = [];
+  var btn = document.getElementById('btnUpload');
+  btn.disabled = true;btn.textContent = '读取中...';
+
+  for(let i=0;i<files.length;i++){
+    let f = files[i];
+    if(!f.size||f.size > maxSize){$toast('图片 ' + f.name + ' 为空或超过10MB限制，已跳过','error');continue}
+    if(!f.type.match(/^image\/(jpeg|png|webp)$/)){$toast('不支持的文件类型: '+f.name,'error');continue}
+    readers.push(new Promise(function(resolve){
+      var reader = new FileReader();
+      reader.onload = function(e){
+        resolve({index:i,data:e.target.result});
+      };
+      reader.onerror = function(){resolve(null)};
+      reader.readAsDataURL(f);
+    }));
+  }
+  Promise.all(readers).then(function(results){
+    results.filter(Boolean).sort(function(a,b){return a.index-b.index}).forEach(function(item){
+      _pendingImages.push(item.data);
+      var img=document.createElement('img');img.className='upload-preview';img.src=item.data;preview.appendChild(img);
+    });
+    updateUploadBtn();
+  });
+}
+
+function triggerUpload(){
+  document.getElementById('fileInput').click();
+}
+
+function uploadTextNote(btn){
+  var input=document.getElementById('textFileInput');
+  if(!input.files||!input.files.length){$toast('请先选择 TXT、Markdown、Word 或 PDF 文件','error');return}
+  btn=btn||document.getElementById('textUploadBtn');
+  $busy(btn,true,'整理中...');
+  var fd=new FormData(); fd.append('file',input.files[0]);
+  fd.append('subject_hint',document.getElementById('subjectHint').value.trim());
+  $toast('正在整理文字笔记...');
+  fetch('/api/notes/upload-text',{method:'POST',headers:{'X-Auth-Token':window.$API._authToken||'Ntmhzsgtc'},body:fd}).then(function(r){
+    return r.json().then(function(data){if(!r.ok)throw new Error(data.detail||'上传失败');return data;});
+  }).then(function(r){
+    input.value=''; $toast(r.action==='merged'?'文字内容已整合到已有笔记':'文字笔记已创建','ok'); loadNotes();
+    if(document.getElementById('knowledgeTreeCard').style.display!=='none')loadKnowledgeTree();
+    if(r.target_id)openNote(r.target_id);
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+function toggleKnowledgeTree(){
+  var card=document.getElementById('knowledgeTreeCard');
+  var visible=card.style.display!=='none';
+  card.style.display=visible?'none':'block';
+  if(!visible)loadKnowledgeTree();
+}
+
+function toggleKnowledgeGraph(){
+  var card=document.getElementById('knowledgeGraphCard');
+  var visible=card.style.display!=='none';
+  card.style.display=visible?'none':'block';
+  if(!visible)loadKnowledgeGraph();
+}
+
+function loadKnowledgeGraph(btn){
+  btn=btn||document.getElementById('btnRefreshKG');
+  $busy(btn,true);
+  window.$API.get('/api/knowledge-graph/stats').then(function(stats){
+    var empty=document.getElementById('kgEmpty');
+    var searchResults=document.getElementById('kgSearchResults');
+    var network=document.getElementById('kgNetwork');
+    var clusters=document.getElementById('kgClusters');
+    document.getElementById('kgStats').textContent=
+      '知识点: '+stats.total_nodes+' | 关系: '+stats.total_edges+' | 知识簇: '+stats.total_clusters+' | 关键词: '+stats.total_keywords;
+    if(!stats.total_nodes){empty.style.display='block';searchResults.style.display='none';network.style.display='none';clusters.innerHTML='';return}
+    empty.style.display='none';
+    // 加载知识簇
+    window.$API.get('/api/knowledge-graph/clusters').then(function(cr){
+      var cl=cr.clusters||[];
+      if(!cl.length){clusters.innerHTML='';return}
+      clusters.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:4px">知识簇（点击浏览）</div>'+
+        cl.slice(0,8).map(function(c){
+          return'<span class="kg-cluster" onclick="showClusterNodes(\''+c.id+'\')">'+$esc(c.label)+' ('+c.size+')</span>';
+        }).join(' ');
+    }).catch(function(){});
+  }).catch(function(e){$toast('加载知识图谱失败: '+e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+function searchKnowledgeGraph(){
+  var q=document.getElementById('kgSearchInput').value.trim();
+  if(!q)return;
+  var btn=document.getElementById('kgSearchInput');
+  $busy(btn,true);
+  window.$API.get('/api/knowledge-graph/search?q='+encodeURIComponent(q)+'&limit=10').then(function(r){
+    var results=r.results||[];
+    var box=document.getElementById('kgSearchResults');
+    var empty=document.getElementById('kgEmpty');
+    var network=document.getElementById('kgNetwork');
+    network.style.display='none';
+    if(!results.length){box.style.display='none';empty.style.display='block';empty.textContent='未找到相关知识点';return}
+    empty.style.display='none';
+    box.style.display='block';
+    box.innerHTML=results.map(function(n){
+      var icon=_kgTypeIcon(n.type||'concept');
+      return'<div class="kg-node" onclick="showNodeNetwork(\''+n.id+'\')">'+
+        '<span class="kg-node-icon '+n.type||'concept'+'">'+icon+'</span>'+
+        '<span class="kg-node-label">'+$esc(n.label)+'</span>'+
+        '<span class="kg-node-weight">'+n.weight+'</span>'+
+        (n.description?'<div class="kg-node-desc">'+$esc(n.description)+'</div>':'')+
+        '</div>';
+    }).join('');
+  }).catch(function(e){$toast('搜索失败: '+e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+function showNodeNetwork(nodeId){
+  window.$API.get('/api/knowledge-graph/related/'+nodeId+'?depth=2').then(function(r){
+    var box=document.getElementById('kgNetwork');
+    var center=document.getElementById('kgNetworkCenter');
+    var nodesDiv=document.getElementById('kgNodes');
+    var empty=document.getElementById('kgEmpty');
+    document.getElementById('kgSearchResults').style.display='none';
+    empty.style.display='none';
+    box.style.display='block';
+    var c=r.center||{};
+    var coreBadge=c.core?'<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 5px;border-radius:3px;margin-left:4px">核心</span>':'';
+    center.innerHTML='<b>'+$esc(c.label||'')+'</b> '+coreBadge+' ('+$esc(c.type||'')+') '+$esc(c.description||'')+' <button class="btn btn-sm" style="padding:1px 6px;font-size:10px" onclick="showNodeDetail(\''+nodeId+'\')">详情</button>';
+    var nodes=r.nodes||[];
+    var edges=r.edges||[];
+    nodes.sort(function(a,b){if(a.core!==b.core)return a.core?-1:1;return(b.weight||1)-(a.weight||1);});
+    nodesDiv.innerHTML=nodes.map(function(n){
+      var related=edges.filter(function(e){return e.from===n.id||e.to===n.id});
+      var relatedLabels=related.map(function(e){
+        var otherId=e.from===n.id?e.to:e.from;
+        var othernodes=nodes.find(function(nd){return nd.id===otherId});
+        var otherName=othernodes?othernodes.label:'';
+        return otherName?(e.relation||'')+': '+otherName:'';
+      }).filter(Boolean).slice(0,3);
+      var icon=_kgTypeIcon(n.type||'concept');
+      var coreClass=n.core?'kg-core-node':'kg-support-node';
+      var nCoreBadge=n.core?'<span style="font-size:9px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;margin-left:3px">核心</span>':'';
+      return'<div class="kg-node '+coreClass+(n.id===nodeId?' active':'')+'">'+
+        '<span class="kg-node-icon '+(n.type||'concept')+'">'+icon+'</span>'+
+        '<span style="flex:1">'+
+        '<span class="kg-node-label">'+$esc(n.label)+'</span>'+nCoreBadge+
+        (relatedLabels.length?'<div class="kg-node-desc">'+$esc(relatedLabels.join(' / '))+'</div>':'')+
+        (n.description?'<div class="kg-node-desc">'+$esc(n.description)+'</div>':'')+
+        '</span>'+
+        '<span class="kg-node-weight">'+n.weight+'</span>'+
+        '<button class="btn btn-sm" style="padding:1px 4px;font-size:9px" onclick="showNodeDetail(\''+n.id+'\')">详情</button>'+
+        '</div>';
+    }).join('');
+  }).catch(function(e){$toast('加载关联网络失败: '+e.message,'error')});
+}
+
+function showNodeDetail(nodeId){
+  window.$API.get('/api/knowledge-graph/node/'+nodeId).then(function(d){
+    if(!d.found){$toast('知识点不存在','error');return}
+    var box=document.getElementById('kgNetwork');
+    var center=document.getElementById('kgNetworkCenter');
+    var nodesDiv=document.getElementById('kgNodes');
+    document.getElementById('kgSearchResults').style.display='none';
+    document.getElementById('kgEmpty').style.display='none';
+    box.style.display='block';
+    var coreBadge=d.core?'<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;margin-left:6px">核心概念</span>':'<span style="font-size:10px;background:var(--subtle);padding:1px 6px;border-radius:3px;margin-left:6px">'+(d.type||'')+'</span>';
+    center.innerHTML='<b style="font-size:14px">'+$esc(d.label||'')+'</b> '+coreBadge;
+    var html='<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--card-bg)">';
+    if(d.description)html+='<div style="margin-bottom:8px;font-size:13px;color:var(--text2)">'+$esc(d.description)+'</div>';
+    if(d.detail&&d.detail!==d.description)html+='<div style="font-size:12px;color:var(--text2);white-space:pre-wrap;margin-bottom:8px">'+$esc(d.detail)+'</div>';
+    if(d.aliases&&d.aliases.length)html+='<div style="font-size:11px;color:var(--text3)">别名: '+$esc(d.aliases.join('、'))+'</div>';
+    html+='<div style="font-size:11px;color:var(--text3)">权重: '+(d.weight||1)+' | 来源: '+(d.source_notes?d.source_notes.length:0)+' 篇笔记</div>';
+    html+='</div>';
+    if(d.source_note_details&&d.source_note_details.length){
+      html+='<div style="font-size:12px;font-weight:600;margin-bottom:6px">来源笔记</div>';
+      html+=d.source_note_details.map(function(note){
+        return'<div class="kg-node" style="flex-direction:column;align-items:flex-start;cursor:pointer" onclick="closeKgAndOpenNote(\''+note.id+'\')">'+
+          '<div style="font-weight:500;font-size:12px">'+$esc(note.title)+'</div>'+
+          '<div style="font-size:11px;color:var(--text3)">'+$esc(note.subject||'')+' '+$esc(note.grade||'')+' | '+$esc((note.knowledge_tags||[]).slice(0,3).join(', '))+'</div>'+
+          '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+$esc(note.excerpt||'')+'...</div>'+
+          '<div style="font-size:10px;color:var(--accent);margin-top:4px">点击查看详情</div>'+
+          '</div>';
+      }).join('');
+    }
+    if(d.related_nodes&&d.related_nodes.length){
+      html+='<div style="font-size:12px;font-weight:600;margin:10px 0 6px">关联知识点</div>';
+      html+=d.related_nodes.slice(0,8).map(function(n){
+        var icon=_kgTypeIcon(n.type||'concept');
+        var nCoreBadge=n.core?'<span style="font-size:9px;background:var(--accent);color:#fff;padding:1px 3px;border-radius:2px;margin-left:2px">核</span>':'';
+        return'<div class="kg-node" onclick="showNodeDetail(\''+n.id+'\')">'+
+          '<span class="kg-node-icon '+(n.type||'concept')+'" style="width:16px;height:16px;font-size:9px">'+icon+'</span>'+
+          '<span class="kg-node-label">'+$esc(n.label)+'</span>'+nCoreBadge+
+          '<span style="font-size:10px;color:var(--text3)">'+(n.relation||'')+'</span>'+
+          '</div>';
+      }).join('');
+    }
+    nodesDiv.innerHTML=html;
+  }).catch(function(e){$toast('加载详情失败: '+e.message,'error')});
+}
+
+function closeKgAndOpenNote(noteId){
+  document.getElementById('knowledgeGraphCard').style.display='none';
+  if(typeof loadNotes==='function')loadNotes();
+  setTimeout(function(){
+    if(typeof openNoteModal==='function')openNoteModal(noteId);
+    else if(typeof openNote==='function')openNote(noteId);
+  },300);
+}
+
+function showClusterNodes(clusterId){
+  window.$API.get('/api/knowledge-graph/clusters').then(function(cr){
+    var cluster=(cr.clusters||[]).find(function(c){return c.id===clusterId});
+    if(!cluster)return;
+    window.$API.get('/api/knowledge-graph/related/'+cluster.nodes[0]+'?depth=3').then(function(r){
+      var nodes=r.nodes||[];
+      var nodesDiv=document.getElementById('kgNodes');
+      var box=document.getElementById('kgNetwork');
+      document.getElementById('kgSearchResults').style.display='none';
+      document.getElementById('kgEmpty').style.display='none';
+      box.style.display='block';
+      document.getElementById('kgNetworkCenter').innerHTML='<b>知识簇: '+$esc(cluster.label)+'</b> ('+cluster.size+' 个知识点)';
+      nodesDiv.innerHTML=nodes.map(function(n){
+        var icon=_kgTypeIcon(n.type||'concept');
+        return'<div class="kg-node">'+
+          '<span class="kg-node-icon '+(n.type||'concept')+'">'+icon+'</span>'+
+          '<span class="kg-node-label">'+$esc(n.label)+'</span>'+
+          '<span class="kg-node-weight">'+n.weight+'</span>'+
+          (n.description?'<div class="kg-node-desc">'+$esc(n.description)+'</div>':'')+
+          '</div>';
+      }).join('');
+    }).catch(function(e){});
+  }).catch(function(e){});
+}
+
+function _kgTypeIcon(type){
+  var icons={concept:'K',person:'P',work:'W',era:'E',term:'T',event:'V',location:'L'};
+  return icons[type]||'K';
+}
+
+function loadKnowledgeTree(btn){
+  btn=btn||document.getElementById('btnRefreshTree');
+  $busy(btn,true);
+  window.$API.get('/api/notes/knowledge-tree').then(function(tree){
+    var empty=document.getElementById('knowledgeTreeEmpty'), svg=document.getElementById('knowledgeTreeSvg');
+    var nodes=tree.nodes||[], edges=tree.edges||[];
+    if(!nodes.length){empty.textContent='暂无可展示的知识点';svg.style.display='none';return}
+    empty.style.display='none';svg.style.display='block';
+    var byId={};nodes.forEach(function(n){byId[n.id]=n});
+    var subjects=nodes.filter(function(n){return n.type==='subject'});
+    var columns={};subjects.forEach(function(n,i){columns[n.id]={x:90+i*220,y:42}});
+    var tags=nodes.filter(function(n){return n.type==='tag'}), notes=nodes.filter(function(n){return n.type==='note'});
+    tags.forEach(function(n,i){var parent=edges.find(function(e){return e.to===n.id});var p=parent&&columns[parent.from];n.x=p?p.x:90+(i%3)*220;n.y=110+Math.floor(i/3)*54});
+    notes.forEach(function(n,i){var parent=edges.find(function(e){return e.to===n.id});var tag=parent&&byId[parent.from];n.x=tag&&tag.x||90+(i%3)*220;n.y=215+Math.floor(i/3)*42});
+    svg.innerHTML='';
+    edges.forEach(function(e){var a=byId[e.from],b=byId[e.to];if(!a||!b)return;svg.insertAdjacentHTML('beforeend','<line x1="'+(a.x||90)+'" y1="'+(a.y||40)+'" x2="'+(b.x||90)+'" y2="'+(b.y||40)+'" stroke="var(--border)"/>')});
+    nodes.forEach(function(n){var fill=n.type==='subject'?'var(--accent)':(n.type==='tag'?'var(--accent-soft)':'var(--card-bg)');var color=n.type==='subject'?'var(--on-accent)':'var(--text)';var w=n.type==='note'?150:110;svg.insertAdjacentHTML('beforeend','<g class="tree-node" data-note-id="'+$esc(n.note_id||'')+'"><rect x="'+((n.x||90)-w/2)+'" y="'+((n.y||40)-14)+'" width="'+w+'" height="28" rx="5" fill="'+fill+'" stroke="var(--border)"/><text x="'+(n.x||90)+'" y="'+((n.y||40)+4)+'" text-anchor="middle" font-size="11" fill="'+color+'">'+$esc((n.label||'').slice(0,22))+'</text></g>')});
+    svg.querySelectorAll('.tree-node').forEach(function(el){el.onclick=function(){if(el.dataset.noteId)openNote(el.dataset.noteId)}});
+  }).catch(function(e){document.getElementById('knowledgeTreeEmpty').textContent='知识树加载失败: '+e.message}).finally(function(){$busy(btn,false)});
+}
+
+function updateUploadBtn(){
+  var btn = document.getElementById('btnUpload');
+  btn.disabled = _pendingImages.length === 0;
+  btn.textContent = _pendingImages.length ? '开始整理 ('+_pendingImages.length+' 张)' : '开始整理';
+}
+
+function uploadImages(btn){
+  if(!_pendingImages.length)return;
+  btn=btn||document.getElementById('btnUpload');
+  var status = document.getElementById('uploadStatus');
+  status.style.display = 'block';
+  status.className = 'upload-status processing';
+  status.textContent = '正在 OCR 识别 + AI 分类整理...';
+  $busy(btn,true,'处理中...');
+
+  var hint = document.getElementById('subjectHint').value.trim();
+  window.$API.post('/api/notes/upload-images',{images:_pendingImages,subject_hint:hint}).then(function(r){
+    status.className = 'upload-status ok';
+    status.textContent = (r.action==='merged'?'已整合到已有笔记':'已创建新笔记') + '：' + $esc(r.note?r.note.title:'') +
+      (r.failed_images?'（'+r.failed_images+' 张图片识别失败，已整理其余内容）':'');
+    _pendingImages = [];
+    document.getElementById('uploadPreview').innerHTML = '';
+    updateUploadBtn();
+    loadNotes();
+    if(document.getElementById('knowledgeTreeCard').style.display!=='none')loadKnowledgeTree();
+    // Auto-open the created/merged note
+    if(r.target_id)openNote(r.target_id);
+  }).catch(function(e){
+    status.className = 'upload-status error';
+    status.textContent = '处理失败: '+e.message;
+  }).finally(function(){$busy(btn,false)});
+}
+
+// ===== List Notes =====
+function loadNotes(){
+  var subject = document.getElementById('filterSubject').value;
+  var search = document.getElementById('filterSearch').value.trim().toLowerCase();
+  window.$API.get('/api/notes?'+new URLSearchParams({subject:subject}).toString()).then(function(r){
+    var notes = r.notes||[];
+    var groups = r.groups||{};
+    var container = document.getElementById('noteList');
+    if(!notes.length){
+      container.innerHTML = '<div class="empty-state"><div style="font-size:14px">暂无笔记</div><div class="hint">上传图片或使用 AI 自动整理考点</div></div>';
+      return;
+    }
+    // Filter by search
+    if(search){
+      notes = notes.filter(function(n){
+        return (n.title||'').toLowerCase().indexOf(search)>=0 || (n.knowledge_tags||[]).some(function(t){return t.toLowerCase().indexOf(search)>=0});
+      });
+      // Rebuild groups
+      groups = {};
+      notes.forEach(function(n){
+        var s = n.subject||'未分类';
+        groups[s] = groups[s]||[];
+        groups[s].push(n);
+      });
+    }
+    if(!notes.length){
+      container.innerHTML = '<div class="empty-state"><div style="font-size:14px">无匹配笔记</div></div>';
+      return;
+    }
+    // Also update filter dropdown
+    updateSubjectFilter(r);
+
+    var html = '';
+    Object.keys(groups).sort().forEach(function(subj){
+      var items = groups[subj];
+      html += '<div class="subject-group"><div class="subject-label"><span>'+$esc(subj)+'</span><span style="font-weight:400">'+items.length+' 篇</span></div>';
+      items.sort(function(a,b){return b.sort_order-a.sort_order}).forEach(function(n){
+        var tags = (n.knowledge_tags||[]).slice(0,5).map(function(t){return '<span class="tag">'+$esc(t)+'</span>'}).join('');
+        var badges = [];
+        if(n.has_diagram) badges.push('<span class="note-badge note-badge-diag">图</span>');
+        if(n.is_structured) badges.push('<span class="note-badge note-badge-ai">AI</span>');
+        html += '<div class="note-card" onclick="openNote(\''+$esc(n.id)+'\')">'+
+          '<div class="note-title">'+$esc(n.title)+' '+badges.join('')+'</div>'+
+          '<div class="note-meta"><span>'+$esc(n.grade)+'</span><span>'+$esc(n.question_count)+'题</span><span>'+$fmt(n.updated_at||n.created_at)+'</span></div>'+
+          '<div style="display:flex;gap:4px;margin-top:4px">'+tags+'</div>'+
+          '<div class="note-excerpt">'+$esc((n.content||'').replace(/[#*_~`>\[\]]/g,'').slice(0,100))+'</div>'+
+          '</div>';
+      });
+      html += '</div>';
+    });
+    container.innerHTML = html;
+  }).catch(function(e){
+    document.getElementById('noteList').innerHTML = '<div class="empty-state" style="color:var(--text)">加载失败: '+$esc(e.message)+'</div>';
+  });
+}
+
+function updateSubjectFilter(r){
+  var sel = document.getElementById('filterSubject');
+  var current = sel.value;
+  var subjects = new Set();
+  (r.notes||[]).forEach(function(n){if(n.subject)subjects.add(n.subject)});
+  sel.innerHTML = '<option value="">全部学科</option>';
+  Array.from(subjects).sort().forEach(function(s){
+    var o = document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);
+  });
+  sel.value = current;
+}
+
+// ===== Open Note =====
+function openNote(noteId){
+  _currentNoteId = noteId;
+  window.$API.get('/api/notes/'+noteId).then(function(n){
+    _currentNoteData = n;
+    document.getElementById('noteModalTitle').textContent = n.title||'';
+    document.getElementById('noteModalMeta').innerHTML =
+      '<b>学科:</b> '+$esc(n.subject)+' | <b>学段:</b> '+$esc(n.grade)+' | '+
+      '<b>知识点:</b> '+(n.knowledge_tags||[]).map(function(t){return '<span class="tag">'+$esc(t)+'</span>'}).join('')+' | '+
+      '<b>更新:</b> '+$fmt(n.updated_at||n.created_at);
+
+    // Content tab
+    var cd = document.getElementById('tab-note-content');
+    cd.innerHTML = '';
+    var mdDiv = document.createElement('div');
+    cd.appendChild(mdDiv);
+    if(typeof $md==='function'){
+      $md(n.content||'*暂无内容*',mdDiv);
+    }else{
+      mdDiv.innerHTML = '<pre style="white-space:pre-wrap">'+$esc(n.content)+'</pre>';
+    }
+
+    // Typical questions tab
+    var qs = n.typical_questions||[];
+    var qDiv = document.getElementById('tab-note-questions');
+    qDiv.innerHTML = qs.length ?
+      qs.map(function(q,i){
+        return '<div class="typical-q"><div class="q-stem">例题 '+(i+1)+': '+$esc(q.stem)+'</div>'+
+          (q.answer?'<div class="q-answer"><b>答案:</b> '+$esc(q.answer)+'</div>':'')+
+          (q.analysis?'<div class="q-analysis"><b>解析:</b> '+$esc(q.analysis)+'</div>':'')+
+          '</div>';
+      }).join('') :
+      '<p style="padding:8px;color:var(--text2)">暂无典型例题（AI 未从上传图片中提取到题目）</p>';
+
+    // Source images tab
+    var srcs = n.source_images||[];
+    var sDiv = document.getElementById('tab-note-sources');
+    sDiv.innerHTML = srcs.length ?
+      '<div class="source-images">'+srcs.map(function(b64){
+        return '<img src="'+$esc(b64)+'" alt="来源图片" onclick="window.open(this.src)" title="点击查看原图">';
+      }).join('')+'</div>' :
+      '<p style="padding:8px;color:var(--text2)">暂无来源图片</p>';
+
+    // Edit tab
+    document.getElementById('editNoteTitle').value = n.title||'';
+    document.getElementById('editNoteSubject').value = n.subject||'';
+    document.getElementById('editNoteGrade').value = n.grade||'';
+    document.getElementById('editNoteTags').value = (n.knowledge_tags||[]).join(', ');
+    document.getElementById('editNoteContent').value = n.content||'';
+
+    // Diagram editor link
+    var btnEditor = document.getElementById('btnOpenEditor');
+    if(n.diagram_spec){
+      btnEditor.style.display = '';
+      btnEditor.onclick = function(){
+        localStorage.setItem('note_diagram_spec_'+n.id, JSON.stringify(n.diagram_spec));
+        window.open('/editor?note_id='+n.id, '_blank');
+      };
+    }else{
+      btnEditor.style.display = 'none';
+    }
+
+    _noteTabSwitch('note-content');
+    document.getElementById('noteModal').style.display = 'flex';
+  }).catch(function(e){$toast(e.message,'error')});
+}
+
+function closeNoteModal(){
+  document.getElementById('noteModal').style.display = 'none';
+  _currentNoteId = null;_currentNoteData = null;
+}
+
+// ===== Edit Note =====
+function saveNoteEdit(btn){
+  if(!_currentNoteId)return;
+  btn=btn||document.getElementById('btnSaveNoteEdit');
+  $busy(btn,true,'保存中...');
+  var data = {
+    title: document.getElementById('editNoteTitle').value.trim(),
+    content: document.getElementById('editNoteContent').value,
+    knowledge_tags: document.getElementById('editNoteTags').value.split(',').map(function(t){return t.trim()}).filter(Boolean),
+    subject: document.getElementById('editNoteSubject').value.trim(),
+    grade: document.getElementById('editNoteGrade').value.trim(),
+    diagram_spec: _currentNoteData ? _currentNoteData.diagram_spec : null
+  };
+  window.$API.put('/api/notes/'+_currentNoteId+'/full',data).then(function(){
+    $toast('已保存','ok');
+    loadNotes();
+    // Refresh current note data
+    openNote(_currentNoteId);
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+// ===== Download =====
+function downloadNote(){
+  if(!_currentNoteId)return;
+  window.open('/api/notes/'+_currentNoteId+'/download', '_blank');
+}
+
+// ===== Open in Diagram Editor =====
+function openInEditor(){
+  if(!_currentNoteId)return;
+  if(_currentNoteData && _currentNoteData.diagram_spec){
+    window.open('/editor?note_id='+_currentNoteId, '_blank');
+  }else{
+    // Create a new diagram spec
+    $toast('请先在编辑标签中创建模型图spec','error');
+  }
+}
+
+// ===== References =====
+var _pendingReferences = [];
+function renderNoteReferences(){
+  var el=document.getElementById('tab-note-references');
+  if(!_currentNoteData){el.innerHTML='<p>未选择笔记</p>';return}
+  _pendingReferences = (_currentNoteData.references||[]).slice();
+  var html='<div style="display:flex;flex-direction:column;gap:12px;height:100%">';
+  html+='<div><b>当前引用</b><div id="refCurrentList" style="margin-top:6px"></div></div>';
+  html+='<div style="border-top:1px solid var(--border);padding-top:12px">';
+  html+='<b>添加引用</b>';
+  html+='<div style="display:flex;gap:6px;margin-top:6px">';
+  html+='<input type="text" id="refSearchInput" class="form-input" placeholder="搜索题目或题库名称..." style="flex:1" onkeydown="if(event.key===&#39;Enter&#39;)searchNoteRefs(document.getElementById(&#39;btnSearchRefs&#39;))">';
+  html+='<button class="btn btn-primary btn-sm" id="btnSearchRefs" onclick="searchNoteRefs(this)">搜索</button>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:10px;margin-top:6px;font-size:12px;color:var(--text2)">';
+  html+='<label><input type="radio" name="refSearchType" value="all" checked> 全部</label>';
+  html+='<label><input type="radio" name="refSearchType" value="question"> 题目</label>';
+  html+='<label><input type="radio" name="refSearchType" value="bank"> 题库</label>';
+  html+='</div>';
+  html+='<div id="refSearchResults" style="margin-top:8px;max-height:240px;overflow:auto"></div>';
+  html+='</div>';
+  html+='<div style="text-align:right"><button class="btn btn-primary" id="btnSaveRefs" onclick="saveNoteReferences(this)">保存引用</button></div>';
+  html+='</div>';
+  el.innerHTML=html;
+  _renderRefCurrentList();
+}
+function _renderRefCurrentList(){
+  var list=document.getElementById('refCurrentList');
+  if(!list) return;
+  if(!_pendingReferences.length){list.innerHTML='<span style="color:var(--text3);font-size:12px">暂无引用</span>';return}
+  list.innerHTML=_pendingReferences.map(function(r,i){
+    var label=(r.type==='question'?'题目':'题库')+': '+(r.name||r.id||'');
+    var link='';
+    if(r.type==='question') link='/questions?qid='+encodeURIComponent(r.id||'');
+    else if(r.type==='bank') link='/questions?bank='+encodeURIComponent(r.name||'');
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:4px;margin-bottom:4px;background:var(--subtle)">'+
+      '<span style="font-size:13px">'+$esc(label)+'</span>'+
+      '<div style="display:flex;gap:4px">'+
+      (link?'<a href="'+$esc(link)+'" target="_blank" class="btn btn-sm">查看</a>':'')+
+      '<button class="btn btn-sm" data-remove-idx="'+i+'">移除</button>'+
+      '</div></div>';
+  }).join('');
+  list.querySelectorAll('button[data-remove-idx]').forEach(function(b){
+    b.style.color='var(--err)';
+    b.onclick=function(){removeNoteRef(parseInt(b.dataset.removeIdx,10))};
+  });
+}
+function searchNoteRefs(btn){
+  var kw=document.getElementById('refSearchInput').value.trim();
+  if(!kw){$toast('请输入搜索关键词','error');return}
+  btn=btn||document.getElementById('btnSearchRefs');
+  $busy(btn,true);
+  var type=document.querySelector('input[name="refSearchType"]:checked').value;
+  var resultsEl=document.getElementById('refSearchResults');
+  resultsEl.innerHTML='<span class="spin"></span> 搜索中...';
+  window.$API.get('/api/notes/search?'+new URLSearchParams({keyword:kw,type:type}).toString()).then(function(r){
+    var items=[];
+    (r.questions||[]).forEach(function(q){
+      items.push({type:'question',id:q.id,name:(q.ocr_text||'').slice(0,40)||q.id,obj:q});
+    });
+    (r.banks||[]).forEach(function(b){
+      items.push({type:'bank',id:b.name,name:b.name+' ('+b.count+'题)',obj:b});
+    });
+    if(!items.length){resultsEl.innerHTML='<span style="color:var(--text3);font-size:12px">无结果</span>';return}
+    var html=items.map(function(it,i){
+      var meta=it.type==='question'?((it.obj.subject||'')+' '+(it.obj.grade||'')):(it.obj.count+'题');
+      var addName=it.type==='question'?(it.obj.ocr_text||'').slice(0,30):it.name;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:4px;margin-bottom:4px">'+
+        '<div style="font-size:13px"><span class="tag">'+(it.type==='question'?'题':'库')+'</span> '+$esc(it.name)+' <span style="color:var(--text3);font-size:11px">'+$esc(meta)+'</span></div>'+
+        '<button class="btn btn-sm btn-primary" data-add-type="'+$esc(it.type)+'" data-add-id="'+$esc(it.id)+'" data-add-name="'+$esc(addName)+'">添加</button>'+
+        '</div>';
+    }).join('');
+    resultsEl.innerHTML=html;
+    resultsEl.querySelectorAll('button[data-add-type]').forEach(function(b){
+      b.onclick=function(){addNoteRef(b.dataset.addType,b.dataset.addId,b.dataset.addName)};
+    });
+  }).catch(function(e){resultsEl.innerHTML='<span style="color:var(--err);font-size:12px">搜索失败: '+$esc(e.message)+'</span>'}).finally(function(){$busy(btn,false)});
+}
+function addNoteRef(type,id,name){
+  if(!_currentNoteData) return;
+  var exists=_pendingReferences.some(function(r){return r.type===type && ((type==='question'&&r.id===id)||(type==='bank'&&r.name===id))});
+  if(exists){$toast('已存在相同引用','error');return}
+  var ref={type:type};
+  if(type==='question'){ref.id=id;ref.name=name||id}
+  else{ref.name=id;ref.id=''}
+  _pendingReferences.push(ref);
+  _renderRefCurrentList();
+}
+function removeNoteRef(idx){
+  _pendingReferences.splice(idx,1);
+  _renderRefCurrentList();
+}
+function saveNoteReferences(btn){
+  if(!_currentNoteId) return;
+  btn=btn||document.getElementById('btnSaveRefs');
+  $busy(btn,true,'保存中...');
+  window.$API.post('/api/notes/'+_currentNoteId+'/references',{references:_pendingReferences}).then(function(r){
+    $toast('引用已保存','ok');
+    _currentNoteData.references=r.references||_pendingReferences;
+    _pendingReferences=(_currentNoteData.references||[]).slice();
+    _renderRefCurrentList();
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+// ===== Delete =====
+async function deleteNote(btn){
+  if(!_currentNoteId||!await $confirm('确认删除这篇笔记？操作不可撤销。',{danger:true}))return;
+  btn=btn||document.getElementById('btnDeleteNote');
+  $busy(btn,true,'删除中...');
+  window.$API.delete('/api/notes/'+_currentNoteId).then(function(){
+    $toast('已删除','ok');
+    closeNoteModal();
+    loadNotes();
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+// ===== Auto Organize =====
+async function autoOrganize(btn){
+  if(!await $confirm('AI 将自动检测并合并重复知识点笔记，确认？'))return;
+  btn=btn||document.getElementById('btnAutoOrganize');
+  $busy(btn,true,'整理中...');
+  window.$API.post('/api/notes/auto-organize',{}).then(function(r){
+    $toast(r.message,'ok');
+    loadNotes();
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+// ===== AI Generate Notes =====
+async function aiGenerateNotes(btn){
+  if(!await $confirm('AI 将根据全部已完成题目归纳解题套路并生成笔记，可能需要较长时间。继续？'))return;
+  btn=btn||document.getElementById('btnAiGenerate');
+  $busy(btn,true,'生成中...');
+  window.$API.post('/api/notes/ai-generate',{}).then(function(r){
+    $toast(r.message||'已完成','ok');
+    loadNotes();
+    if(document.getElementById('knowledgeTreeCard').style.display!=='none')loadKnowledgeTree();
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', function(){ loadNotes(); });
+</script>
+{% endblock %}
+

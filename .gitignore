@@ -1,0 +1,39 @@
+﻿# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Build & artifacts
+build/
+dist/
+tmp/
+*.log
+*.zip
+*.exe
+*.dll
+*.pdb
+*.pyd
+*.apk
+*.dex
+*.bin
+
+# Backups
+backups/
+*backup*/
+
+# IDE & agents
+.trae/
+.workbuddy/
+.idea/
+.DS_Store
+
+# Project-specific
+backend/settings.json
+android/
+dev_log/
+

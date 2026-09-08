@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header"><h1>系统诊断</h1></div>
+
+<div class="card">
+  <div class="card-title">撤销管理</div>
+  <div class="actions" style="gap:4px">
+    <button class="btn btn-sm" onclick="undoLast()">撤销上次操作</button>
+    <button class="btn btn-sm" onclick="showUndoHistory()">撤销历史</button>
+  </div>
+  <div id="undoStatus" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
+</div>
+
+<div class="card">
+  <div class="card-title">AI 题目诊断</div>
+  <div class="row">
+    <div class="form-group">
+      <label>选择题目</label>
+      <select id="diagQuestionSelect" style="max-width:100%">
+        <option value="">-- 请选择 --</option>
+      </select>
+    </div>
+    <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary" id="diagQuestionBtn" onclick="diagQuestion(this)">执行诊断</button>
+      <button class="btn btn-sm" onclick="aiDiag(this)">AI自动诊断</button>
+      <button class="btn btn-sm" onclick="batchDiagErrors(this)">批量诊断所有错误题目</button>
+    </div>
+  </div>
+  <div id="diagQuestionResult" style="margin-top:10px;font-size:13px;white-space:pre-wrap;font-family:monospace"></div>
+  <div id="aiDiagResult" style="margin-top:10px;font-size:13px;white-space:pre-wrap;font-family:monospace"></div>
+</div>
+
+<div class="card">
+  <div class="card-title">全库巡检</div>
+  <div class="row">
+    <div class="form-group" style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="runAudit(this)">运行全库巡检</button>
+      <button class="btn btn-sm" onclick="runRewrite(this)" title="用 AI 重写带标记的题目，可能改变题目文本">自动修复标记题目</button>
+    </div>
+  </div>
+  <div id="auditResult" style="margin-top:10px;font-size:13px;white-space:pre-wrap;font-family:monospace"></div>
+</div>
+
+<div class="card">
+  <div class="card-title">系统自检</div>
+  <div id="diagResults"></div>
+</div>
+
+<script>
+(function(){
+  // ===== 题目诊断 =====
+  function loadQuestionsForDiag(){
+    window.$API.get('/api/questions?limit=200').then(function(qs){
+      var sel=document.getElementById('diagQuestionSelect');
+      sel.innerHTML='<option value="">-- 请选择 --</option>';
+      qs.forEach(function(q){
+        var o=document.createElement('option');
+        o.value=q.id;
+        o.textContent='['+q.id.slice(0,8)+'] '+(q.subject||'?')+' '+(q.grade||'?')+' '+(q.ocr_text||q.question_html||'').substring(0,40);
+        sel.appendChild(o);
+      });
+    }).catch(function(e){
+      var el=document.getElementById('diagQuestionResult');
+      el.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">加载题目列表失败: '+$esc(e.message)+'</div>';
+      $toast && $toast('题目列表加载失败','error');
+    });
+  }
+
+  window.diagQuestion=function(btn){
+    var sel=document.getElementById('diagQuestionSelect');
+    var qid=sel.value;
+    if(!qid){$toast('请先选择题目','error');return}
+    $busy(btn,true,'诊断中...');
+    var res=document.getElementById('diagQuestionResult');
+    res.innerHTML='<span class="spin"></span> 诊断进行中...';
+    window.$API.get('/api/questions/'+encodeURIComponent(qid)).then(function(d){
+      var html='<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--subtle)">';
+      html+='<b>题目 ID:</b> '+$esc(d.id)+'<br>';
+      html+='<b>学科:</b> '+$esc(d.subject||'-')+'<br>';
+      html+='<b>年级:</b> '+$esc(d.grade||'-')+'<br>';
+      html+='<b>状态:</b> '+$esc(d.status)+'<br>';
+      html+='<b>知识点:</b> '+$esc((d.knowledge_tags||[]).join(', '))+'<br>';
+      html+='<b>地区:</b> '+$esc(d.region||'-')+'<br>';
+      html+='<b>题库:</b> '+$esc(d.bank||'default')+'<br>';
+      html+='<b>题型:</b> '+$esc(d.question_type||'未分类')+'<br>';
+      html+='<b>来源:</b> '+$esc(d.source_type||'-')+'<br>';
+      html+='<b>创建时间:</b> '+$fmt(d.created_at)+'<br>';
+      html+='<b>更新时间:</b> '+$fmt(d.updated_at)+'<br>';
+      html+='<b>标准答案:</b> '+$esc(d.standard_answer||'无')+'<br>';
+      html+='<b>题面长度:</b> '+(d.question_html||'').length+' 字符<br>';
+      html+='<b>解答长度:</b> '+(d.answer_html||'').length+' 字符<br>';
+      html+='<b>示意图数量:</b> '+(d.diagrams||[]).length+'<br>';
+      if(d.error_message){
+        html+='<b class="status-error" style="display:inline-block;padding:2px 6px;border-radius:3px">错误信息:</b> <span class="status-error" style="display:inline-block;padding:2px 6px;border-radius:3px">'+$esc(d.error_message)+'</span><br>';
+      }
+      html+='<hr style="margin:8px 0">';
+      html+='<b>检查结果:</b><br>';
+      var issues=[];
+      if(!d.question_html&&!d.ocr_text)issues.push('[-] 无题面内容和OCR文本');
+      if(!d.answer_html)issues.push('[-] 无解答内容');
+      if(!d.standard_answer)issues.push('[-] 无标准答案');
+      if(d.status==='error')issues.push('[ERR] 题目处理失败: '+(d.error_message||'未知错误'));
+      if(d.status==='pending'||d.status==='processing')issues.push('[..] 题目尚未处理完成');
+      if(issues.length){
+        issues.forEach(function(iss){var cls=iss.indexOf('[ERR]')===0?'status-error':iss.indexOf('[-]')===0?'status-warn':'status-info';html+='<div class="'+cls+'" style="padding:2px 0">'+$esc(iss)+'</div>'});
+      }else{
+        html+='<div class="status-ok" style="padding:2px 0">[OK] 题目数据完整，无异常</div>';
+      }
+      html+='</div>';
+      res.innerHTML=html;
+    }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:4px 8px;border-radius:4px">诊断失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+  };
+
+  // ===== AI 自动诊断 =====
+  window.aiDiag=function(btn){
+    var sel=document.getElementById('diagQuestionSelect');
+    var qid=sel.value;
+    if(!qid){$toast('请先选择题目','error');return}
+    $busy(btn,true,'AI 分析中...');
+    var res=document.getElementById('aiDiagResult');
+    res.innerHTML='<span class="spin"></span> AI分析中...';
+    window.$API.post('/api/diag/ai-analyze/'+qid).then(function(d){
+      var html='<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--subtle)">';
+      html+='<b>AI 诊断结果</b><br><br>';
+      if(d.analysis){
+        var mdDiv=document.createElement('div');
+        $md(d.analysis,mdDiv);
+        html+=mdDiv.innerHTML;
+      }else{
+        html+='<pre style="white-space:pre-wrap;font-size:13px">'+$esc(JSON.stringify(d,null,2))+'</pre>';
+      }
+      html+='</div>';
+      res.innerHTML=html;
+    }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:4px 8px;border-radius:4px">AI诊断失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+  };
+
+  window.batchDiagErrors=function(btn){
+    $busy(btn,true,'批量诊断中...');
+    var res=document.getElementById('aiDiagResult');
+    res.innerHTML='<span class="spin"></span> 批量诊断进行中，请稍候...';
+    window.$API.post('/api/diag/ai-analyze-all-errors',{}).then(function(d){
+      var results=(d&&d.results)||[];
+      if(!results.length){res.innerHTML='<div class="status-ok" style="padding:4px 8px;border-radius:4px">[OK] 没有错误题目需要诊断</div>';$busy(btn,false);return}
+      var html='<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--subtle)">';
+      html+='<b>批量诊断完成</b> — 分析 '+d.analyzed+' 题 / 错误共 '+d.total+' 题<br><br>';
+      results.forEach(function(r){
+        var failed=!r.diagnosis||String(r.diagnosis).indexOf('诊断失败')===0;
+        html+='<div class="'+(failed?'status-error':'status-ok')+'" style="padding:6px;margin:4px 0;border-radius:3px">';
+        html+='<b>'+$esc(String(r.id||'')).slice(0,12)+'</b>: '+$esc(String(r.diagnosis||'无诊断结果'))+'</div>';
+      });
+      html+='</div>';
+      res.innerHTML=html;
+    }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:4px 8px;border-radius:4px">批量诊断失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+  };
+
+  // ===== 全库巡检 / 自动修复 =====
+  window.runAudit=function(btn){
+    $busy(btn,true,'巡检中...');
+    var res=document.getElementById('auditResult');
+    res.innerHTML='<span class="spin"></span> 巡检进行中，题目较多时可能需要较长时间...';
+    window.$API.post('/api/audit/trigger',{}).then(function(d){
+      res.innerHTML='<div class="status-ok" style="padding:6px 10px;border-radius:4px">[OK] '+$esc(d.message||'巡检完成')+'</div>';
+    }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">[ERR] 巡检失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+  };
+
+  window.runRewrite=async function(btn){
+    if(!await $confirm('自动修复会用 AI 重写带标记题目的内容，可能改变题目文本。确定继续？',{danger:true}))return;
+    $busy(btn,true,'修复中...');
+    var res=document.getElementById('auditResult');
+    res.innerHTML='<span class="spin"></span> 自动修复进行中，题目较多时可能需要较长时间...';
+    window.$API.post('/api/audit/rewrite',{}).then(function(d){
+      res.innerHTML='<div class="status-ok" style="padding:6px 10px;border-radius:4px">[OK] '+$esc(d.message||'重写任务已执行')+'</div>';
+    }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">[ERR] 修复失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+  };
+
+  // ===== 原有系统诊断 =====
+  function log(msg, type){
+    var el=document.getElementById('diagResults');
+    var cls='status-'+((type==='error'||type==='warn'||type==='ok')?type:'info');
+    el.innerHTML+='<div class="'+cls+'" style="padding:6px 10px;margin:2px 0;border-radius:4px;font-size:13px;white-space:pre-wrap">'+$esc(msg)+'</div>';
+  }
+
+  async function run(){
+    var el=document.getElementById('diagResults');
+    el.innerHTML='<span class="spin"></span> 诊断进行中...';
+
+    // 1. 配置文件检查
+    log('=== 1. 配置检查 ===');
+    try{
+      var s=await window.$API.get('/api/settings');
+      log('has_deepseek: '+s.has_deepseek, s.has_deepseek?'ok':'error');
+      log('has_glm: '+s.has_zhipuai, s.has_zhipuai?'ok':'error');
+      log('has_kimi: '+s.has_kimi, s.has_kimi?'ok':'warn');
+      log('ds_model: '+s.deepseek_model);
+      log('ai_timeout: '+s.ai_timeout+'s');
+      if(!s.has_deepseek)log('  → DeepSeek Key 未配置！请在设置页面填入','error');
+      if(!s.has_zhipuai)log('  → GLM Key 未配置！推荐配置（免费GLM-4V-Flash做OCR）','warn');
+    }catch(e){log('设置读取失败: '+e.message,'error')}
+
+    // 2. API 真实调用测试
+    log('=== 2. API 调用测试 ===');
+    if(s&&s.has_deepseek){
+      try{
+        var r=await fetch('/api/test/deepseek',{method:'POST',headers:{'X-Auth-Token':window.$API._authToken||'Ntmhzsgtc'},signal:AbortSignal.timeout(15000)});
+        var d=await r.json();
+        if(d.ok) log('DeepSeek OK: '+ (d.elapsed||'') ,'ok');
+        else log('DeepSeek FAIL: '+d.error,'error');
+      }catch(e){log('DeepSeek timeout/error: '+e.message,'warn')}
+    }else{log('跳过 DeepSeek 测试（未配置）','warn')}
+
+    if(s&&s.has_zhipuai){
+      try{
+        var r=await fetch('/api/test/glm',{method:'POST',headers:{'X-Auth-Token':window.$API._authToken||'Ntmhzsgtc'},signal:AbortSignal.timeout(30000)});
+        var d=await r.json();
+        if(d.ok) log('GLM OK: '+ (d.elapsed||'') ,'ok');
+        else log('GLM FAIL: '+d.error,'error');
+      }catch(e){log('GLM timeout/error: '+e.message,'warn')}
+    }else{log('跳过 GLM 测试（未配置）','warn')}
+
+    if(s&&s.has_kimi){
+      try{
+        var r=await fetch('/api/test/kimi',{method:'POST',headers:{'X-Auth-Token':window.$API._authToken||'Ntmhzsgtc'},signal:AbortSignal.timeout(15000)});
+        var d=await r.json();
+        if(d.ok) log('Kimi OK: '+ (d.elapsed||'') ,'warn');
+        else log('Kimi FAIL: '+d.error,'error');
+      }catch(e){log('Kimi timeout/error: '+e.message,'warn')}
+    }else{log('跳过 Kimi 测试（未配置）','warn')}
+
+    // 3. 数据库检查
+    log('=== 3. 数据库检查 ===');
+    try{
+      var r=await window.$API.get('/api/diag/db');
+      log('数据库连接: '+r.status, r.status==='ok'?'ok':'error');
+      log('题目总数: '+r.question_count);
+      log('错误题目数: '+r.error_count, r.error_count===0?'ok':'error');
+      if(r.error_count>0){
+        log('错误题目列表:', 'warn');
+        r.error_questions.forEach(function(q){log('  ['+q.id+'] '+ (q.error_message||'无错误信息') ,'error')});
+      }
+    }catch(e){log('数据库检查失败: '+e.message,'error')}
+
+    // 4. 文件完整性
+    log('=== 4. 文件完整性 ===');
+    try{
+      var r=await window.$API.get('/api/diag/files');
+      r.results.forEach(function(item){log(item,item.startsWith('[OK]')?'ok':item.startsWith('[WARN]')?'warn':'error')});
+    }catch(e){log('文件检查失败: '+e.message,'error')}
+
+    log('=== 诊断完成 ===','ok');
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){ loadQuestionsForDiag(); run(); });
+})();
+</script>
+{% endblock %}
+

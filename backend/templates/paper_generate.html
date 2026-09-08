@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.paper-type-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}
+.paper-type-options label{display:flex;align-items:center;gap:5px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:var(--card-bg)}
+.paper-type-options label:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.advanced-toggle{display:flex;align-items:center;min-height:44px;margin:8px 0;cursor:pointer;font-weight:600;font-size:14px;color:var(--text2);user-select:none}
+#availHint:empty{display:none}
+.paper-type-options label{min-height:44px;min-width:0}
+#configsList>div{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));width:100%}
+#configsList>div>div{min-width:0!important;width:auto!important}
+</style>
+<div class="header"><h1>组卷中心</h1></div>
+
+<div id="availHint" class="alert"></div>
+<div id="profileHint" class="alert" style="display:none"></div>
+
+<div class="card">
+  <form id="genForm" onsubmit="generatePaper(event)">
+    <div class="form-group"><label>组卷方式</label>
+      <div class="paper-type-options">
+        <label><input type="radio" name="paper_type" value="custom" checked onchange="onTypeChange()"> 自定义 Prompt</label>
+        <label><input type="radio" name="paper_type" value="regular_paper" onchange="onTypeChange()"> 平时卷</label>
+        <label><input type="radio" name="paper_type" value="collection_paper" onchange="onTypeChange()"> 集合卷</label>
+        <label><input type="radio" name="paper_type" value="mock_exam" onchange="onTypeChange()"> 模拟卷</label>
+        <label><input type="radio" name="paper_type" value="final_exam" onchange="onTypeChange()"> 压轴卷</label>
+        <label><input type="radio" name="paper_type" value="topic_exam" onchange="onTypeChange()"> 专题卷</label>
+        <label><input type="radio" name="paper_type" value="worksheet" onchange="onTypeChange()"> 学习单</label>
+      </div>
+    </div>
+
+    <div id="worksheetPanel" style="display:none;padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--subtle)">
+      <p style="font-size:12px;color:var(--text3);margin-bottom:12px">学习单基于笔记、例题和练习题生成，适合“学练结合”。</p>
+      <div class="row">
+        <div class="form-group"><label>主题/学习目标</label><input type="text" name="worksheet_topic" placeholder="如：二次函数图像性质"></div>
+        <div class="form-group"><label>引用概念笔记数量</label><input type="number" name="note_count" value="5" min="1" max="20"></div>
+      </div>
+      <div class="row">
+        <div class="form-group"><label>例题数量</label><input type="number" name="example_count" value="3" min="1" max="10"></div>
+        <div class="form-group"><label>练习题数量</label><input type="number" name="practice_count" value="5" min="1" max="20"></div>
+      </div>
+    </div>
+
+    <div class="row" id="paperCountRow">
+      <div class="form-group"><label>学科</label><select name="subject" id="genSubject"><option value="">不限</option></select></div>
+      <div class="form-group"><label>年级</label><select name="grade" id="genGrade"><option value="">不限</option></select></div>
+      <div class="form-group">
+        <label>题目数量</label>
+        <input type="number" name="question_count" id="questionCountInput" value="10" min="1" max="50">
+        <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:normal;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="aiAutoCount" name="ai_auto_count" onchange="onAiAutoCountChange()">
+          <span>AI 自主选择题量</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group" id="tagsRow"><label>知识点标签筛选</label><select name="knowledge_tags" id="genTags" multiple><option value="">全部知识点</option></select></div>
+
+    <div class="form-group" id="keywordRow"><label>关键词搜索</label><input type="text" name="keyword" placeholder="在题目内容中查找"></div>
+
+    <div class="form-group" id="promptRow"><label id="promptLabel">自定义 Prompt</label>
+      <textarea name="custom_prompt" rows="3" placeholder="例如: 重点考察二次函数和不等式的综合运用，包含2道应用题..."></textarea>
+    </div>
+
+    <div class="row" id="answerSpaceRow">
+      <div class="form-group"><label>答题空间</label><select name="answer_space"><option value="sheet">独立答题卡</option><option value="inline">写在试卷上</option><option value="both">答题卡+试卷留空</option></select></div>
+      <div class="form-group"><label>纸张大小</label><select name="paper_size"><option value="A4">A4</option><option value="A3">A3</option></select></div>
+      <div class="form-group"><label>试卷标题 (可选)</label><input type="text" name="title" placeholder="留空自动生成"></div>
+    </div>
+
+    <div id="promptPreview" class="alert" style="display:none"></div>
+
+    <!-- 高级设置 -->
+    <div class="advanced-toggle" onclick="var t=document.getElementById('advancedPanel');t.style.display=t.style.display==='none'?'block':'none';this.querySelector('span').textContent=t.style.display==='none'?'+ ':'- ';">
+      <span>+ </span>高级设置
+    </div>
+    <div id="advancedPanel" style="display:none;padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+      <p style="font-size:12px;color:var(--text3);margin-bottom:12px">以下设置用于精细控制题目筛选。留空则自动从用户画像推导。</p>
+      <div class="row">
+        <div class="form-group"><label>地区筛选</label><input type="text" name="region" placeholder="如: 北京、全国卷"></div>
+        <div class="form-group"><label>最低平均分</label><input type="number" name="avg_score_min" value="0" min="0" max="150" step="5"></div>
+        <div class="form-group"><label>最高平均分</label><input type="number" name="avg_score_max" value="150" min="0" max="150" step="5"></div>
+      </div>
+      <div class="form-group">
+        <label>附加参数 (JSON)</label>
+        <textarea name="extra_params_json" rows="2" placeholder='{"total_score":100,"exam_duration":120}' style="font-family:monospace;font-size:12px"></textarea>
+      </div>
+    </div>
+
+    <!-- 生成模式与保存 -->
+    <div class="row" style="align-items:flex-end;margin-top:14px">
+      <div class="form-group">
+        <label>生成模式</label>
+        <select name="mode" id="genMode" title="new=按参数重新检索题目生成新卷；modify=保留已加载配置中的题目仅重新排版">
+          <option value="new">重新组卷（按参数选新题）</option>
+          <option value="modify">重新排版（保留同题）</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex;gap:8px;align-items:flex-end">
+        <input type="text" id="configName" placeholder="配置名称（可选）" style="flex:1">
+        <button type="button" class="btn btn-sm" onclick="saveCurrentConfig(this)">保存参数</button>
+      </div>
+    </div>
+
+    <input type="hidden" name="prompt_template_id" value="default_paper">
+    <input type="hidden" name="saved_config_id" id="savedConfigId" value="">
+    <button type="submit" class="btn btn-primary btn-lg" style="width:100%;margin-top:14px" id="genBtn">开始组卷</button>
+  </form>
+</div>
+
+<!-- Saved paper configs history -->
+<div class="card" id="configsCard" style="display:none">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>保存的组卷参数</span>
+    <button class="btn btn-sm" onclick="loadConfigs()">刷新</button>
+  </div>
+  <div id="configsList"><span class="spin"></span></div>
+</div>
+
+<script>
+async function loadConfigs(){
+  try{
+    var r=await $API.get('/api/paper-configs?limit=20');
+    var list=r.configs||[];
+    var el=document.getElementById('configsList');
+    if(!list.length){el.innerHTML='<div class="empty">暂无保存的组卷参数</div>';document.getElementById('configsCard').style.display='none';return}
+    document.getElementById('configsCard').style.display='block';
+    var wrap=document.createElement('div');wrap.style.cssText='display:flex;gap:6px;flex-wrap:wrap';
+    list.forEach(function(c){
+      var item=document.createElement('div');
+      item.style.cssText='flex:0 1 auto;min-width:180px;padding:10px;border:1px solid var(--border);border-radius:6px;position:relative';
+      var t=c.title||c.name||'无标题';
+      var d=c.time?new Date(c.time):null;
+      var ts=d&& !isNaN(d)?(d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'):'';
+      item.innerHTML='<b>'+$esc(t)+'</b><br><span style="font-size:11px;color:var(--text3)">'+$esc(ts)+'</span>'+
+        '<div style="margin-top:8px;display:flex;gap:4px">'+
+        '<button class="btn btn-sm" style="flex:1" onclick="event.stopPropagation();loadConfigIntoForm(\''+$esc(c.id)+'\')">加载</button>'+
+        '<button class="btn btn-sm" style="flex:1" onclick="event.stopPropagation();deleteConfig(\''+$esc(c.id)+'\')">删除</button>'+
+        '</div>';
+      item.querySelector('b').style.cursor='pointer';
+      item.querySelector('b').onclick=function(){window.location.href='/papers/generate?saved_config='+encodeURIComponent(c.id)};
+      wrap.appendChild(item);
+    });
+    el.innerHTML='';el.appendChild(wrap);
+  }catch(e){
+    document.getElementById('configsList').innerHTML='<div class="empty">加载失败</div>';
+  }
+}
+
+async function loadConfigIntoForm(cid){
+  if(!/^[a-zA-Z0-9_-]{1,64}$/.test(cid))return;
+  try{
+    var r=await $API.get('/api/paper-configs/'+encodeURIComponent(cid));
+    var cfg=r.data||{};
+    document.getElementById('savedConfigId').value=cid;
+    if(cfg.subject&&document.getElementById('genSubject'))document.getElementById('genSubject').value=cfg.subject;
+    if(cfg.grade&&document.getElementById('genGrade'))document.getElementById('genGrade').value=cfg.grade;
+    if(cfg.knowledge_tags&&Array.isArray(cfg.knowledge_tags)){
+      var sel2=document.getElementById('genTags');
+      for(var i=0;i<sel2.options.length;i++){if(cfg.knowledge_tags.indexOf(sel2.options[i].value)>=0)sel2.options[i].selected=true}
+    }
+    if(cfg.title)document.querySelector('input[name=title]').value=cfg.title;
+    if(cfg.custom_prompt)document.querySelector('textarea[name=custom_prompt]').value=cfg.custom_prompt;
+    if(cfg.paper_size)document.querySelector('select[name=paper_size]').value=cfg.paper_size;
+    if(cfg.answer_space)document.querySelector('select[name=answer_space]').value=cfg.answer_space;
+    if(cfg.region)document.querySelector('input[name=region]').value=cfg.region;
+    if(cfg.keyword)document.querySelector('input[name=keyword]').value=cfg.keyword;
+    var aiAutoCountCb=document.getElementById('aiAutoCount');
+    var qcInput=document.getElementById('questionCountInput');
+    if(aiAutoCountCb){aiAutoCountCb.checked=!!cfg.ai_auto_count;onAiAutoCountChange()}
+    if(!cfg.ai_auto_count && cfg.question_count!=null && qcInput){qcInput.value=cfg.question_count}
+    if(cfg.note_count!=null)document.querySelector('input[name=note_count]').value=cfg.note_count;
+    if(cfg.example_count!=null)document.querySelector('input[name=example_count]').value=cfg.example_count;
+    if(cfg.practice_count!=null)document.querySelector('input[name=practice_count]').value=cfg.practice_count;
+    if(cfg.worksheet_topic)document.querySelector('input[name=worksheet_topic]').value=cfg.worksheet_topic;
+    if(cfg.paper_type){
+      var safeType=typeof CSS!=='undefined'&&CSS.escape?CSS.escape(cfg.paper_type):cfg.paper_type.replace(/(["\\])/g,'\\$1');
+      var ptRadio=document.querySelector('input[name=paper_type][value="'+safeType+'"]');
+      if(ptRadio){ptRadio.checked=true;onTypeChange()}
+    }
+    if(cfg.mode&&['new','modify'].indexOf(cfg.mode)>=0)document.getElementById('genMode').value=cfg.mode;
+    if(cfg.avg_score_min!=null)document.querySelector('input[name=avg_score_min]').value=cfg.avg_score_min;
+    if(cfg.avg_score_max!=null)document.querySelector('input[name=avg_score_max]').value=cfg.avg_score_max;
+    if(cfg.extra_params){
+      try{document.querySelector('textarea[name=extra_params_json]').value=JSON.stringify(cfg.extra_params,null,2)}catch(ex){}
+    }
+    window.scrollTo({top:0,behavior:'smooth'});
+    $toast('已加载保存的组卷参数 #'+cid,'ok');
+  }catch(e){$toast('加载配置失败','error')}
+}
+
+async function deleteConfig(cid){
+  if(!await $confirm('确定删除该组卷参数？',{danger:true}))return;
+  try{
+    await $API.del('/api/paper-configs/'+encodeURIComponent(cid));
+    if(document.getElementById('savedConfigId').value===cid)document.getElementById('savedConfigId').value='';
+    loadConfigs();$toast('已删除','ok');
+  }catch(e){$toast(e.message||'删除失败','error')}
+}
+
+async function saveCurrentConfig(btn){
+  var data=collectFormData();
+  if(!data.paper_type){$toast('请先选择组卷方式','error');return}
+  var name=document.getElementById('configName').value.trim();
+  $busy(btn,true,'保存中...');
+  try{
+    var r=await $API.post('/api/paper-configs',{name:name,data:data});
+    document.getElementById('savedConfigId').value=r.id||'';
+    document.getElementById('configName').value='';
+    $toast('参数已保存 #'+(r.id||''),'ok');
+    loadConfigs();
+  }catch(e){$toast(e.message||'保存失败','error');$busy(btn,false)}
+}
+
+function collectFormData(){
+  var fd=new FormData(document.getElementById('genForm'));
+  var data={};
+  var aiAutoCount=document.getElementById('aiAutoCount')&&document.getElementById('aiAutoCount').checked;
+  fd.forEach(function(v,k){
+    if(k==='knowledge_tags'){data[k]=[].slice.call(document.getElementById('genTags').selectedOptions).filter(function(o){return o.value}).map(function(o){return o.value})}
+    else if(k==='ai_auto_count'){data[k]=true}
+    else if(k==='question_count'){data[k]=aiAutoCount?null:_parseCount(v,1,50,10)}
+    else if(k==='note_count')data[k]=_parseCount(v,1,20,5);
+    else if(k==='example_count')data[k]=_parseCount(v,1,10,3);
+    else if(k==='practice_count')data[k]=_parseCount(v,1,20,5);
+    else if(k==='avg_score_min'||k==='avg_score_max')data[k]=parseFloat(v)||0;
+    else if(k==='extra_params_json'){
+      if(v.trim()){try{data.extra_params=JSON.parse(v)}catch(ex){data.extra_params={}}}
+    }
+    else if(k==='prompt_template_id'){
+      data[k]=v||'default_paper';
+    }
+    else if(k==='saved_config_id'){
+      if(v)data[k]=v;
+    }
+    else data[k]=v;
+  });
+  if(aiAutoCount)data.ai_auto_count=true;
+  var typeEl=document.querySelector('input[name=paper_type]:checked');
+  data.paper_type=typeEl?typeEl.value:'custom';
+  if(data.paper_type==='worksheet'){
+    if(!data.custom_prompt || !data.custom_prompt.trim())data.custom_prompt=(data.worksheet_topic||'');
+    data.question_count=(data.example_count||0)+(data.practice_count||0);
+  }
+  return data;
+}
+
+var profileCtx={};
+var _capacityTimer=null;
+
+async function refreshCapacity(){
+  var hint=document.getElementById('availHint');
+  var typeEl=document.querySelector('input[name=paper_type]:checked');
+  if(typeEl&&typeEl.value==='worksheet'){
+    hint.style.display='none';return null;
+  }
+  try{
+    var data=collectFormData();
+    var result=await $API.post('/api/papers/capacity',data);
+    var available=Number(result.available||0);
+    var requested=data.ai_auto_count?null:Number(data.question_count||0);
+    hint.style.display='block';
+    hint.className='alert '+(available?'alert-info':'alert-error');
+    if(!available)hint.textContent='当前筛选条件下没有可用题目，请调整学科、年级、知识点或难度。';
+    else if(requested&&requested>available)hint.textContent='当前可用 '+available+' 道，提交后将自动按现有题量组卷。';
+    else hint.textContent=data.ai_auto_count?'当前有 '+available+' 道候选题，AI 将自主确定题量与组合。':'当前可用 '+available+' 道题。';
+    return available;
+  }catch(e){return null}
+}
+
+function scheduleCapacityRefresh(){
+  clearTimeout(_capacityTimer);_capacityTimer=setTimeout(refreshCapacity,250);
+}
+
+async function init(){
+  try{
+    var meta=await $API.get('/api/questions/meta/options'),tags=await $API.get('/api/questions/tags/list'),prompts=await $API.get('/api/prompts'),q=await $API.get('/api/questions?status=done&limit=1');
+    var profile=await $API.get('/api/profile');
+    document.getElementById('availHint').style.display=q.length?'none':'block';
+    document.getElementById('availHint').textContent='题库暂无已完成题目，请先上传并处理题目。';
+    document.getElementById('genSubject').innerHTML='<option value="">不限</option>'+(meta.subjects||[]).map(function(s){return'<option value="'+$esc(s)+'">'+$esc(s)+'</option>'}).join('');
+    document.getElementById('genGrade').innerHTML='<option value="">不限</option>'+(meta.grades||[]).map(function(g){return'<option value="'+$esc(g)+'">'+$esc(g)+'</option>'}).join('');
+    document.getElementById('genTags').innerHTML=(tags.tags||[]).map(function(t){return'<option value="'+$esc(t)+'">'+$esc(t)+'</option>'}).join('');
+    window._prompts=prompts;window._pTypes={custom:'default_paper',regular_paper:'regular_paper',collection_paper:'collection_paper',mock_exam:'mock_exam',final_exam:'final_exam',topic_exam:'topic_exam',worksheet:'worksheet'};
+
+    var p=new URLSearchParams(window.location.search);
+    var sc=p.get('saved_config');
+    if(sc && /^[a-zA-Z0-9_-]{1,64}$/.test(sc)){
+      await loadConfigIntoForm(sc);
+    }
+    if(p.get('subject')) document.getElementById('genSubject').value=p.get('subject');
+    if(p.get('grade')) document.getElementById('genGrade').value=p.get('grade');
+    if(p.get('knowledge_tags')){
+      var tagVals=p.get('knowledge_tags').split(',');
+      var sel=document.getElementById('genTags');
+      var opts=sel.options;
+      for(var i=0;i<opts.length;i++){if(tagVals.indexOf(opts[i].value)>=0)opts[i].selected=true}
+    }
+
+    if(profile.province||profile.grade||profile.school_level){
+      var parts=[];
+      if(profile.school_level)parts.push(profile.school_level);
+      if(profile.grade)parts.push(profile.grade);
+      if(profile.province)parts.push(profile.province);
+      document.getElementById('profileHint').style.display='block';
+      document.getElementById('profileHint').innerHTML='根据你的画像: <b>'+$esc(parts.join(' '))+'</b>，地区与难度将自动推导。如需调整请展开"高级设置"。';
+      if(profile.province){document.querySelector('input[name=region]').value=profile.province+(profile.city||'')}
+      if(profile.avg_score){document.querySelector('input[name=avg_score_min]').value=Math.max(0,profile.avg_score-20);document.querySelector('input[name=avg_score_max]').value=Math.min(150,profile.avg_score+20)}
+    }
+    ['genSubject','genGrade','genTags','questionCountInput','aiAutoCount'].forEach(function(id){
+      var el=document.getElementById(id);if(el)el.addEventListener('change',scheduleCapacityRefresh);
+    });
+    document.querySelectorAll('input[name=region],input[name=keyword],input[name=avg_score_min],input[name=avg_score_max]').forEach(function(el){el.addEventListener('input',scheduleCapacityRefresh)});
+    showPreview();refreshCapacity();
+  }catch(e){}
+}
+
+function onTypeChange(){
+  var typeEl=document.querySelector('input[name=paper_type]:checked');
+  var type=typeEl?typeEl.value:'custom';
+  var isWorksheet=type==='worksheet';
+  if(window._pTypes){document.querySelector('input[name=prompt_template_id]').value=window._pTypes[type]||'default_paper'}
+
+  var wsPanel=document.getElementById('worksheetPanel');
+  if(wsPanel)wsPanel.style.display=isWorksheet?'block':'none';
+
+  var countRow=document.getElementById('paperCountRow');
+  if(countRow)countRow.style.display=isWorksheet?'none':'flex';
+
+  var answerSpaceRow=document.getElementById('answerSpaceRow');
+  if(answerSpaceRow)answerSpaceRow.style.display=isWorksheet?'none':'flex';
+
+  var promptRow=document.getElementById('promptRow');
+  var promptLabel=document.getElementById('promptLabel');
+  if(promptRow)promptRow.style.display='block';
+  if(promptLabel)promptLabel.textContent=isWorksheet?'学习单主题/要求':'自定义 Prompt';
+
+  var advancedPanel=document.getElementById('advancedPanel');
+  if(advancedPanel)advancedPanel.style.display='none';
+
+  if(isWorksheet){
+    var wsTopic=document.querySelector('input[name=worksheet_topic]');
+    var customPrompt=document.querySelector('textarea[name=custom_prompt]');
+    if(wsTopic && customPrompt && !customPrompt.value && wsTopic.value){
+      customPrompt.value=wsTopic.value;
+    }
+  }
+  showPreview();scheduleCapacityRefresh();
+}
+
+function onAiAutoCountChange(){
+  var cb=document.getElementById('aiAutoCount');
+  var input=document.getElementById('questionCountInput');
+  if(!cb||!input)return;
+  input.disabled=cb.checked;
+  if(cb.checked){input.dataset.prev=input.value;input.value=''}
+  else if(input.dataset.prev){input.value=input.dataset.prev}
+  scheduleCapacityRefresh();
+}
+
+function showPreview(){
+  var tid=document.querySelector('input[name=prompt_template_id]').value;
+  var tmpl=window._prompts?window._prompts.find(function(p){return p.id===tid}):null;
+  var preview=document.getElementById('promptPreview');
+  if(tmpl){
+    preview.style.display='block';
+    var blocks=(tmpl.blocks||[]).map(function(b){return '<span class="tag">{'+$esc(b)+'}</span>'}).join(' ');
+    preview.innerHTML='当前模板: <b>'+$esc(tmpl.name)+'</b><br><div style="font-size:12px;margin-top:4px;white-space:pre-wrap;max-height:100px;overflow:auto">'+$esc(tmpl.content)+'</div><div style="margin-top:4px">'+blocks+'</div>';
+  }
+  else{preview.style.display='none'}
+}
+
+function _parseCount(v,min,max,def){
+  var n=parseInt(v,10);
+  if(isNaN(n))return def;
+  return Math.max(min,Math.min(n,max));
+}
+
+async function generatePaper(e){
+  e.preventDefault();
+  var typeEl=document.querySelector('input[name=paper_type]:checked');
+  if(!typeEl){$toast('请选择组卷方式','error');return}
+  var type=typeEl.value;
+  if(type==='worksheet'){
+    var wsTopic=document.querySelector('input[name=worksheet_topic]').value.trim();
+    var customPrompt=document.querySelector('textarea[name=custom_prompt]').value.trim();
+    if(!wsTopic && !customPrompt){
+      $toast('请填写学习单主题/学习目标','error');return;
+    }
+  }
+  var data=collectFormData();
+  if(type!=='worksheet'){
+    var capacity=await refreshCapacity();
+    if(capacity===0){$toast('当前条件下没有可用题目','error');return}
+  }
+  var btn=document.getElementById('genBtn');$busy(btn,true,'AI 正在选题与排版...');
+  try{
+    var r=await $API.post('/api/papers/generate',data);
+    if(!r || !r.paper_id){throw new Error('后端未返回试卷ID');}
+    var notice=(r.warnings&&r.warnings.length?r.warnings.join('；'):'已生成 '+(r.question_count||0)+' 道题');
+    $toast(notice,'ok');
+    setTimeout(function(){window.location.href='/papers/'+encodeURIComponent(r.paper_id)},650);
+  }catch(e){
+    $toast(e.message,'error');$busy(btn,false);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function(){ init(); loadConfigs(); });
+</script>
+{% endblock %}

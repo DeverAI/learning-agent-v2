@@ -1,0 +1,21 @@
+{
+  "role": "student",
+  "school_level": "",
+  "grade": "",
+  "province": "",
+  "city": "",
+  "school": "",
+  "teach_grade": "",
+  "favorite_subjects": [],
+  "paper_history": [
+    {
+      "paper_id": "85c6a6395a33",
+      "title": "八年级数学试卷",
+      "score": 100.0,
+      "total": 100.0
+    }
+  ],
+  "avg_score": 100.0,
+  "notes": "",
+  "style_notes": "喜欢在证明全等时使用大括号列出三个条件，并写'在ΔABC与ΔDEF中'，然后写'∴ΔABC≌ΔDEF'。"
+}

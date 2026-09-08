@@ -1,0 +1,2350 @@
+{
+  "condenser+separatory_funnel+tripod": {
+    "fingerprint": "condenser+separatory_funnel+tripod",
+    "component_types": [
+      "condenser",
+      "separatory_funnel",
+      "tripod"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784299217,
+        "positions": [
+          {
+            "type": "condenser",
+            "x": 136,
+            "y": 58
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 178,
+            "y": 61
+          },
+          {
+            "type": "tripod",
+            "x": 150,
+            "y": 73
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "condenser+distillation_head+separatory_funnel": {
+    "fingerprint": "condenser+distillation_head+separatory_funnel",
+    "component_types": [
+      "condenser",
+      "distillation_head",
+      "separatory_funnel"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784875570,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 180,
+            "y": 19
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 293,
+            "y": 50
+          }
+        ]
+      },
+      {
+        "timestamp": 1784875571,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 180,
+            "y": 19
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "condenser+distillation_head+separatory_funnel+u_tube": {
+    "fingerprint": "condenser+distillation_head+separatory_funnel+u_tube",
+    "component_types": [
+      "condenser",
+      "distillation_head",
+      "separatory_funnel",
+      "u_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784875575,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 168,
+            "y": 15
+          }
+        ]
+      },
+      {
+        "timestamp": 1784875578,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "condenser+distillation_head+funnel+separatory_funnel+u_tube": {
+    "fingerprint": "condenser+distillation_head+funnel+separatory_funnel+u_tube",
+    "component_types": [
+      "condenser",
+      "distillation_head",
+      "funnel",
+      "separatory_funnel",
+      "u_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784875584,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          },
+          {
+            "type": "funnel",
+            "x": 18,
+            "y": -22
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "condenser+distillation_head+funnel+separatory_funnel+u_tube+water_bath": {
+    "fingerprint": "condenser+distillation_head+funnel+separatory_funnel+u_tube+water_bath",
+    "component_types": [
+      "condenser",
+      "distillation_head",
+      "funnel",
+      "separatory_funnel",
+      "u_tube",
+      "water_bath"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784875589,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          },
+          {
+            "type": "funnel",
+            "x": 18,
+            "y": -22
+          },
+          {
+            "type": "water_bath",
+            "x": 286,
+            "y": -75
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+condenser+conical_flask+conical_flask_alt+crucible+distillation_head+funnel+graduated_cylinder+round_bottom_flask+separatory_funnel+test_tube+u_tube+water_bath+wire_gauze": {
+    "fingerprint": "alcohol_lamp+condenser+conical_flask+conical_flask_alt+crucible+distillation_head+funnel+graduated_cylinder+round_bottom_flask+separatory_funnel+test_tube+u_tube+water_bath+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "condenser",
+      "conical_flask",
+      "conical_flask_alt",
+      "crucible",
+      "distillation_head",
+      "funnel",
+      "graduated_cylinder",
+      "round_bottom_flask",
+      "separatory_funnel",
+      "test_tube",
+      "u_tube",
+      "water_bath",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784875621,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          },
+          {
+            "type": "funnel",
+            "x": 18,
+            "y": -22
+          },
+          {
+            "type": "water_bath",
+            "x": 286,
+            "y": -75
+          },
+          {
+            "type": "crucible",
+            "x": 88,
+            "y": -10
+          },
+          {
+            "type": "wire_gauze",
+            "x": 101,
+            "y": 4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 196,
+            "y": 118
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 32,
+            "y": 124
+          },
+          {
+            "type": "conical_flask_alt",
+            "x": 110,
+            "y": -2
+          },
+          {
+            "type": "conical_flask",
+            "x": 72,
+            "y": 9
+          },
+          {
+            "type": "round_bottom_flask",
+            "x": 250,
+            "y": 114
+          },
+          {
+            "type": "test_tube",
+            "x": 129,
+            "y": 4
+          }
+        ]
+      },
+      {
+        "timestamp": 1784875621,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          },
+          {
+            "type": "funnel",
+            "x": 18,
+            "y": -22
+          },
+          {
+            "type": "water_bath",
+            "x": 286,
+            "y": -75
+          },
+          {
+            "type": "crucible",
+            "x": 88,
+            "y": -10
+          },
+          {
+            "type": "wire_gauze",
+            "x": 101,
+            "y": 4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 196,
+            "y": 118
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 32,
+            "y": 124
+          },
+          {
+            "type": "conical_flask_alt",
+            "x": 137,
+            "y": -7
+          },
+          {
+            "type": "conical_flask",
+            "x": 72,
+            "y": 9
+          },
+          {
+            "type": "round_bottom_flask",
+            "x": 250,
+            "y": 114
+          },
+          {
+            "type": "test_tube",
+            "x": 129,
+            "y": 4
+          }
+        ]
+      },
+      {
+        "timestamp": 1784875623,
+        "positions": [
+          {
+            "type": "distillation_head",
+            "x": 147,
+            "y": 59
+          },
+          {
+            "type": "condenser",
+            "x": 112,
+            "y": -27
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 100,
+            "y": 37
+          },
+          {
+            "type": "u_tube",
+            "x": 214,
+            "y": -4
+          },
+          {
+            "type": "funnel",
+            "x": 18,
+            "y": -22
+          },
+          {
+            "type": "water_bath",
+            "x": 286,
+            "y": -75
+          },
+          {
+            "type": "crucible",
+            "x": 88,
+            "y": -10
+          },
+          {
+            "type": "wire_gauze",
+            "x": 101,
+            "y": 4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 196,
+            "y": 118
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 32,
+            "y": 124
+          },
+          {
+            "type": "conical_flask_alt",
+            "x": 137,
+            "y": -7
+          },
+          {
+            "type": "conical_flask",
+            "x": 72,
+            "y": 9
+          },
+          {
+            "type": "round_bottom_flask",
+            "x": 250,
+            "y": 114
+          },
+          {
+            "type": "test_tube",
+            "x": 241,
+            "y": 0
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "beaker+conical_flask": {
+    "fingerprint": "beaker+conical_flask",
+    "component_types": [
+      "beaker",
+      "conical_flask"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784891131,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 105,
+            "y": 124
+          },
+          {
+            "type": "conical_flask",
+            "x": 185,
+            "y": 64
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499673,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 103,
+            "y": 12
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499678,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 102,
+            "y": 5
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499682,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 53
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499683,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 32
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499685,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 47
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499687,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 99,
+            "y": 91
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499694,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          }
+        ]
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "beaker",
+        "x": 99.0,
+        "y": 91.0
+      },
+      {
+        "type": "conical_flask",
+        "x": 147.7,
+        "y": 32.3
+      }
+    ],
+    "calibrated_at": 1785499683,
+    "_last_calibrated_count": 5
+  },
+  "beaker+test_tube": {
+    "fingerprint": "beaker+test_tube",
+    "component_types": [
+      "beaker",
+      "test_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898373,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 133,
+            "y": 27
+          },
+          {
+            "type": "beaker",
+            "x": 240,
+            "y": 67
+          }
+        ]
+      },
+      {
+        "timestamp": 1787194489,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 96,
+            "y": 80
+          },
+          {
+            "type": "test_tube",
+            "x": 72,
+            "y": 74
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "conical_flask+test_tube": {
+    "fingerprint": "conical_flask+test_tube",
+    "component_types": [
+      "conical_flask",
+      "test_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898393,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 132,
+            "y": 55
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+conical_flask+graduated_cylinder+test_tube": {
+    "fingerprint": "alcohol_lamp+conical_flask+graduated_cylinder+test_tube",
+    "component_types": [
+      "alcohol_lamp",
+      "conical_flask",
+      "graduated_cylinder",
+      "test_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898435,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 132,
+            "y": 55
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 8,
+            "y": -4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 172,
+            "y": 61
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+conical_flask+graduated_cylinder+test_tube+wire_gauze": {
+    "fingerprint": "alcohol_lamp+conical_flask+graduated_cylinder+test_tube+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "conical_flask",
+      "graduated_cylinder",
+      "test_tube",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898448,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 132,
+            "y": 55
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 8,
+            "y": -4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 172,
+            "y": 61
+          },
+          {
+            "type": "wire_gauze",
+            "x": 220,
+            "y": 210
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898454,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 132,
+            "y": 55
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 8,
+            "y": -4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 172,
+            "y": 61
+          },
+          {
+            "type": "wire_gauze",
+            "x": 223,
+            "y": 210
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898476,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 132,
+            "y": 55
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 8,
+            "y": -4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 135,
+            "y": 186
+          },
+          {
+            "type": "wire_gauze",
+            "x": 223,
+            "y": 210
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898480,
+        "positions": [
+          {
+            "type": "test_tube",
+            "x": 157,
+            "y": 14
+          },
+          {
+            "type": "conical_flask",
+            "x": 231,
+            "y": -20
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 8,
+            "y": -4
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 135,
+            "y": 186
+          },
+          {
+            "type": "wire_gauze",
+            "x": 223,
+            "y": 210
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+iron_stand": {
+    "fingerprint": "alcohol_lamp+iron_stand",
+    "component_types": [
+      "alcohol_lamp",
+      "iron_stand"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898533,
+        "positions": [
+          {
+            "type": "iron_stand",
+            "x": 6,
+            "y": 9
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 36,
+            "y": 167
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898536,
+        "positions": [
+          {
+            "type": "iron_stand",
+            "x": 6,
+            "y": 9
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 37,
+            "y": 167
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898539,
+        "positions": [
+          {
+            "type": "iron_stand",
+            "x": 6,
+            "y": 9
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 47,
+            "y": 202
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898546,
+        "positions": []
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+iron_stand+wire_gauze": {
+    "fingerprint": "alcohol_lamp+iron_stand+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "iron_stand",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898560,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 50,
+            "y": 182
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+conical_flask+iron_stand+wire_gauze": {
+    "fingerprint": "alcohol_lamp+conical_flask+iron_stand+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "conical_flask",
+      "iron_stand",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898564,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 50,
+            "y": 182
+          },
+          {
+            "type": "conical_flask",
+            "x": 53,
+            "y": 112
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898570,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 50,
+            "y": 182
+          },
+          {
+            "type": "conical_flask",
+            "x": 58,
+            "y": 107
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898576,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 50,
+            "y": 182
+          },
+          {
+            "type": "conical_flask",
+            "x": 57,
+            "y": 60
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898578,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 53,
+            "y": 197
+          },
+          {
+            "type": "conical_flask",
+            "x": 57,
+            "y": 60
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898580,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 53,
+            "y": 197
+          },
+          {
+            "type": "conical_flask",
+            "x": 54,
+            "y": 125
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898583,
+        "positions": [
+          {
+            "type": "wire_gauze",
+            "x": 51,
+            "y": 187
+          },
+          {
+            "type": "conical_flask",
+            "x": 53,
+            "y": 119
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898598,
+        "positions": []
+      },
+      {
+        "timestamp": 1784898631,
+        "positions": []
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "wire_gauze",
+        "x": 51.0,
+        "y": 187.0
+      },
+      {
+        "type": "conical_flask",
+        "x": 56.0,
+        "y": 93.0
+      }
+    ],
+    "calibrated_at": 1784898580,
+    "_last_calibrated_count": 5
+  },
+  "alcohol_lamp+tripod": {
+    "fingerprint": "alcohol_lamp+tripod",
+    "component_types": [
+      "alcohol_lamp",
+      "tripod"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898688,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 117,
+            "y": 107
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 127,
+            "y": 140
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898689,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 117,
+            "y": 107
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 144
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898699,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 118
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898702,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+tripod+wire_gauze": {
+    "fingerprint": "alcohol_lamp+tripod+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "tripod",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898711,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 124,
+            "y": 111
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898716,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+beaker+tripod+wire_gauze": {
+    "fingerprint": "alcohol_lamp+beaker+tripod+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "beaker",
+      "tripod",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898744,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 120,
+            "y": 74
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898748,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 105,
+            "y": 38
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898756,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 105,
+            "y": 39
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898767,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 104,
+            "y": 41
+          }
+        ]
+      },
+      {
+        "timestamp": 1784898775,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 104,
+            "y": 41
+          }
+        ]
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "tripod",
+        "x": 92.0,
+        "y": 95.0
+      },
+      {
+        "type": "alcohol_lamp",
+        "x": 120.0,
+        "y": 119.0
+      },
+      {
+        "type": "wire_gauze",
+        "x": 95.0,
+        "y": 104.0
+      },
+      {
+        "type": "beaker",
+        "x": 104.7,
+        "y": 40.3
+      }
+    ],
+    "calibrated_at": 1784898775,
+    "_last_calibrated_count": 5
+  },
+  "alcohol_lamp+beaker+protractor+tripod+wire_gauze": {
+    "fingerprint": "alcohol_lamp+beaker+protractor+tripod+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "beaker",
+      "protractor",
+      "tripod",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1784898793,
+        "positions": [
+          {
+            "type": "tripod",
+            "x": 92,
+            "y": 95
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 120,
+            "y": 119
+          },
+          {
+            "type": "wire_gauze",
+            "x": 95,
+            "y": 104
+          },
+          {
+            "type": "beaker",
+            "x": 104.7,
+            "y": 40.3
+          },
+          {
+            "type": "protractor",
+            "x": 154,
+            "y": 100
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "conical_flask+tripod": {
+    "fingerprint": "conical_flask+tripod",
+    "component_types": [
+      "conical_flask",
+      "tripod"
+    ],
+    "samples": [
+      {
+        "timestamp": 1785061957,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 60
+          },
+          {
+            "type": "tripod",
+            "x": 174,
+            "y": 142
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061960,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 60
+          },
+          {
+            "type": "tripod",
+            "x": 169,
+            "y": 143
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061962,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 60
+          },
+          {
+            "type": "tripod",
+            "x": 187,
+            "y": 139
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061962,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 147,
+            "y": 66
+          },
+          {
+            "type": "tripod",
+            "x": 187,
+            "y": 139
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061964,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 178,
+            "y": 61
+          },
+          {
+            "type": "tripod",
+            "x": 187,
+            "y": 139
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061965,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 116,
+            "y": 67
+          },
+          {
+            "type": "tripod",
+            "x": 182.7,
+            "y": 140
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061965,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 253,
+            "y": 46
+          },
+          {
+            "type": "tripod",
+            "x": 182.7,
+            "y": 140
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061966,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 253,
+            "y": 46
+          },
+          {
+            "type": "tripod",
+            "x": 182.7,
+            "y": 140
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061968,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 191,
+            "y": 46
+          },
+          {
+            "type": "tripod",
+            "x": 182.7,
+            "y": 140
+          }
+        ]
+      },
+      {
+        "timestamp": 1785061975,
+        "positions": [
+          {
+            "type": "conical_flask",
+            "x": 188,
+            "y": 79
+          },
+          {
+            "type": "tripod",
+            "x": 182.7,
+            "y": 140
+          }
+        ]
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "conical_flask",
+        "x": 185.6,
+        "y": 58.2
+      },
+      {
+        "type": "tripod",
+        "x": 182.7,
+        "y": 140.0
+      }
+    ],
+    "calibrated_at": 1785061975,
+    "_last_calibrated_count": 10
+  },
+  "beaker+conical_flask+graduated_cylinder": {
+    "fingerprint": "beaker+conical_flask+graduated_cylinder",
+    "component_types": [
+      "beaker",
+      "conical_flask",
+      "graduated_cylinder"
+    ],
+    "samples": [
+      {
+        "timestamp": 1785499702,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 112,
+            "y": 58
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+beaker+conical_flask+graduated_cylinder": {
+    "fingerprint": "alcohol_lamp+beaker+conical_flask+graduated_cylinder",
+    "component_types": [
+      "alcohol_lamp",
+      "beaker",
+      "conical_flask",
+      "graduated_cylinder"
+    ],
+    "samples": [
+      {
+        "timestamp": 1785499718,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 112,
+            "y": 58
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 273,
+            "y": 158
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499720,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 112,
+            "y": 58
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 174,
+            "y": 133
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  },
+  "alcohol_lamp+beaker+conical_flask+graduated_cylinder+wire_gauze": {
+    "fingerprint": "alcohol_lamp+beaker+conical_flask+graduated_cylinder+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "beaker",
+      "conical_flask",
+      "graduated_cylinder",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1785499740,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 174,
+            "y": 133
+          },
+          {
+            "type": "wire_gauze",
+            "x": 71,
+            "y": 222
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499744,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 174,
+            "y": 133
+          },
+          {
+            "type": "wire_gauze",
+            "x": 165,
+            "y": 127
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499746,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 170,
+            "y": 25
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 176,
+            "y": 210
+          },
+          {
+            "type": "wire_gauze",
+            "x": 165,
+            "y": 127
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499748,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 202,
+            "y": 1
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 176,
+            "y": 210
+          },
+          {
+            "type": "wire_gauze",
+            "x": 165,
+            "y": 127
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499749,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 202,
+            "y": 1
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 176,
+            "y": 210
+          },
+          {
+            "type": "wire_gauze",
+            "x": 172,
+            "y": 146
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499752,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 196,
+            "y": 9
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 165,
+            "y": 133.3
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499759,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 196,
+            "y": 9
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 136,
+            "y": 129
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499763,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 196,
+            "y": 9
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499765,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 67
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          }
+        ]
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "beaker",
+        "x": 17.0,
+        "y": 109.0
+      },
+      {
+        "type": "conical_flask",
+        "x": 180.7,
+        "y": 17.0
+      },
+      {
+        "type": "graduated_cylinder",
+        "x": 94.0,
+        "y": 22.0
+      },
+      {
+        "type": "alcohol_lamp",
+        "x": 175.3,
+        "y": 184.3
+      },
+      {
+        "type": "wire_gauze",
+        "x": 165.0,
+        "y": 133.3
+      }
+    ],
+    "calibrated_at": 1785499749,
+    "_last_calibrated_count": 5
+  },
+  "alcohol_lamp+beaker+conical_flask+graduated_cylinder+separatory_funnel+wire_gauze": {
+    "fingerprint": "alcohol_lamp+beaker+conical_flask+graduated_cylinder+separatory_funnel+wire_gauze",
+    "component_types": [
+      "alcohol_lamp",
+      "beaker",
+      "conical_flask",
+      "graduated_cylinder",
+      "separatory_funnel",
+      "wire_gauze"
+    ],
+    "samples": [
+      {
+        "timestamp": 1785499788,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 67
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 18,
+            "y": 225
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499793,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 67
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 189,
+            "y": 51
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499795,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 67
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 189,
+            "y": 51
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499798,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 176,
+            "y": 67
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 187,
+            "y": 50
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499810,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499891,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 281,
+            "y": 90
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 188,
+            "y": 51
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499893,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 243,
+            "y": 161
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 188,
+            "y": 51
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499893,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 26,
+            "y": 111
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 188,
+            "y": 51
+          }
+        ]
+      },
+      {
+        "timestamp": 1785499894,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 17,
+            "y": 109
+          },
+          {
+            "type": "conical_flask",
+            "x": 72,
+            "y": 117
+          },
+          {
+            "type": "graduated_cylinder",
+            "x": 94,
+            "y": 22
+          },
+          {
+            "type": "alcohol_lamp",
+            "x": 175.3,
+            "y": 184.3
+          },
+          {
+            "type": "wire_gauze",
+            "x": 169,
+            "y": 170
+          },
+          {
+            "type": "separatory_funnel",
+            "x": 188,
+            "y": 51
+          }
+        ]
+      }
+    ],
+    "calibrated_position": [
+      {
+        "type": "beaker",
+        "x": 17.0,
+        "y": 109.0
+      },
+      {
+        "type": "conical_flask",
+        "x": 176.0,
+        "y": 67.0
+      },
+      {
+        "type": "graduated_cylinder",
+        "x": 94.0,
+        "y": 22.0
+      },
+      {
+        "type": "alcohol_lamp",
+        "x": 175.3,
+        "y": 184.3
+      },
+      {
+        "type": "wire_gauze",
+        "x": 169.0,
+        "y": 170.0
+      },
+      {
+        "type": "separatory_funnel",
+        "x": 188.0,
+        "y": 51.0
+      }
+    ],
+    "calibrated_at": 1785499810,
+    "_last_calibrated_count": 5
+  },
+  "beaker+round_bottom_flask+test_tube": {
+    "fingerprint": "beaker+round_bottom_flask+test_tube",
+    "component_types": [
+      "beaker",
+      "round_bottom_flask",
+      "test_tube"
+    ],
+    "samples": [
+      {
+        "timestamp": 1787194492,
+        "positions": [
+          {
+            "type": "beaker",
+            "x": 96,
+            "y": 80
+          },
+          {
+            "type": "test_tube",
+            "x": 72,
+            "y": 74
+          },
+          {
+            "type": "round_bottom_flask",
+            "x": 103,
+            "y": 120
+          }
+        ]
+      }
+    ],
+    "calibrated_position": null
+  }
+}

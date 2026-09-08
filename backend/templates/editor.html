@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.editor-layout{display:flex;gap:12px;height:calc(100vh - 100px);min-height:500px}
+.editor-palette{width:200px;min-width:180px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.editor-palette .palette-header{padding:10px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.editor-palette .palette-search{padding:6px;border-bottom:1px solid var(--border)}
+.editor-palette .palette-search input{width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px}
+.editor-palette .palette-cats{display:flex;gap:2px;padding:6px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.editor-palette .palette-cats button{flex:1;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg);cursor:pointer;font-size:11px;min-width:45px;color:var(--text)}
+.editor-palette .palette-cats button.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.editor-palette .palette-list{flex:1;overflow-y:auto;padding:6px}
+.editor-palette .palette-item{padding:6px 8px;border:1px solid var(--border);border-radius:4px;cursor:grab;margin-bottom:4px;font-size:12px;transition:all .12s;user-select:none;display:grid;grid-template-columns:auto minmax(0,1fr) minmax(46px,44%);align-items:center;gap:5px;min-width:0}
+.editor-palette .palette-item:hover{background:var(--hover);border-color:var(--accent);transform:translateX(2px)}
+.editor-palette .palette-item .palette-thumb{display:inline-flex!important;align-items:center;justify-content:center;margin-right:0!important;flex:none}
+.editor-palette .palette-item .component-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.editor-palette .palette-item .type-tag{font-size:10px;color:var(--text3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;direction:ltr}
+.editor-palette .palette-item.dragging{opacity:.5;transform:scale(.95)}
+.editor-canvas-wrap{flex:1;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.editor-canvas-wrap .canvas-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:12px}
+.editor-canvas-wrap .canvas-toolbar .btn{padding:4px 10px;font-size:11px}
+.editor-canvas-wrap .canvas-toolbar .sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.editor-canvas-wrap .canvas-area{flex:1;overflow:auto;padding:20px;display:flex;align-items:flex-start;justify-content:center;background:var(--subtle)}
+.editor-canvas-wrap .canvas-area svg{border:1px solid var(--border);border-radius:4px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06);cursor:default;max-width:100%;height:auto;touch-action:none;user-select:none}
+.editor-props{width:260px;min-width:220px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.editor-props .props-header{padding:10px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.editor-props .props-body{flex:1;overflow-y:auto;padding:10px;font-size:12px}
+.editor-props .props-body .prop-row{display:flex;align-items:center;margin-bottom:6px;gap:4px}
+.editor-props .props-body .prop-row label{min-width:55px;font-weight:500;color:var(--text2);font-size:11px}
+.editor-props .props-body .prop-row input,.editor-props .props-body .prop-row select{flex:1;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px}
+.editor-props .props-body .prop-row input[type=checkbox]{flex:none;width:16px;height:16px}
+.editor-props .props-body .prop-row .btn{padding:3px 8px;font-size:11px}
+.editor-props .props-footer{padding:8px;border-top:1px solid var(--border);display:flex;gap:4px;flex-wrap:wrap}
+.editor-props .props-footer .btn{padding:4px 8px;font-size:11px;flex:1}
+.editor-props .props-section{border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:8px;font-size:12px}
+.editor-props .props-section h4{margin:0 0 6px;font-size:12px;font-weight:600}
+.palette-item .color-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.color-dot.chem{background:var(--accent)}
+.color-dot.phys{background:color-mix(in srgb,var(--accent) 72%,var(--card-bg))}
+.color-dot.math{background:color-mix(in srgb,var(--accent) 46%,var(--card-bg))}
+.component-in-canvas{cursor:move}
+.component-in-canvas:active{cursor:grabbing}
+.component-in-canvas:hover{filter:drop-shadow(0 0 3px rgba(0,0,0,.2))}
+.component-in-canvas.group-locked{cursor:default;opacity:.9}
+.component-in-canvas.group-locked .lock-indicator{fill:var(--ok-bg);stroke:var(--ok) !important}
+.canvas-hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text3);font-size:13px;text-align:center;pointer-events:none}
+.calibration-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;font-weight:600}
+.calibration-badge.active{background:var(--ok-bg);color:var(--ok)}
+.calibration-badge.pending{background:var(--warn-bg);color:var(--warn)}
+.canvas-toolbar .toolbar-group{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-left:1px solid var(--border)}
+.canvas-toolbar .toolbar-label{font-size:10px;color:var(--text3);text-transform:uppercase;margin-right:2px;white-space:nowrap}
+.canvas-toolbar .toolbar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:600;margin-left:4px}
+.canvas-toolbar .btn.disabled{opacity:.55;cursor:not-allowed}
+@container main (max-width:760px){.editor-layout{flex-direction:column;height:auto}.editor-palette{width:100%;max-height:160px}.editor-props{width:100%}.editor-canvas-wrap{min-height:400px}.canvas-toolbar{flex-wrap:wrap}.canvas-toolbar .toolbar-group{border-left:none;border-top:1px solid var(--border);padding-top:4px;width:100%}}
+</style>
+
+<div class="header">
+  <h1>实验图编辑器</h1>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="editor.newFromTemplate()">+ 新建模板图</button>
+    <button class="btn btn-sm" onclick="editor.loadFromGallery()">加载图库</button>
+    <button class="btn btn-sm" onclick="editor.saveToGallery()">保存到图库</button>
+    <button class="btn btn-sm" onclick="editor.saveToQuestion()">保存到题目</button>
+    <button class="btn btn-sm" onclick="editor.showCalibration()">校准统计</button>
+    <button class="btn btn-sm" onclick="editor.exportSVG()">导出SVG</button>
+  </div>
+</div>
+
+<div class="editor-layout" id="editorLayout">
+  <!-- Left: Component Palette -->
+  <div class="editor-palette">
+    <div class="palette-header">元件面板</div>
+    <div class="palette-search"><input type="text" id="paletteSearch" placeholder="搜索元件..." oninput="editor.filterPalette()"></div>
+    <div class="palette-cats">
+      <button class="active" data-cat="all" onclick="editor.filterCat('all',this)">全部</button>
+      <button data-cat="chem" onclick="editor.filterCat('chem',this)">化学</button>
+      <button data-cat="phys" onclick="editor.filterCat('phys',this)">物理</button>
+      <button data-cat="math" onclick="editor.filterCat('math',this)">数学</button>
+    </div>
+    <div class="palette-list" id="paletteList"></div>
+  </div>
+
+  <!-- Center: Canvas -->
+  <div class="editor-canvas-wrap">
+    <div class="canvas-toolbar">
+      <span style="font-weight:600;font-size:12px;white-space:nowrap">画布</span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">编辑</span>
+        <button class="btn btn-sm" onclick="editor.undo()" title="撤销上一步操作 (Ctrl+Z)">撤销</button>
+        <button class="btn btn-sm" onclick="editor.redo()" title="重做 (Ctrl+Y)">重做</button>
+        <button class="btn btn-sm" onclick="editor.deleteSelected()" title="删除选中元件 (Del)">删除</button>
+      </span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">锁定</span>
+        <button class="btn btn-sm" onclick="editor.lockAll()" title="锁定全部装置组合（位置锁定）">锁全部</button>
+        <button class="btn btn-sm" onclick="editor.lockSelected()" title="仅锁定选中元件（位置锁定）">锁选中</button>
+        <button class="btn btn-sm" onclick="editor.unlockAll()" title="解锁全部位置锁定">解锁</button>
+      </span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">比例</span>
+        <button class="btn btn-sm disabled" id="lockRatioBtn" onclick="editor.lockSelectedRatios()" title="多选后锁定元件之间的尺寸比例">锁定比例</button>
+        <button class="btn btn-sm disabled" id="unifyRatioBtn" onclick="editor.unifyAllRatios()" title="统一所有锁定比例组的实际尺寸">统一比例</button>
+        <button class="btn btn-sm" id="unlinkRatioBtn" onclick="editor.unlinkSelectedRatios()" title="解除选中元件的比例锁定">解除比例</button>
+      </span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">快照</span>
+        <button class="btn btn-sm" onclick="editor.saveSnapshot()">保存快照</button>
+        <button class="btn btn-sm" onclick="editor.loadSnapshot()">恢复</button>
+      </span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">语义</span>
+        <button class="btn btn-sm disabled" id="sceneComboBtn" onclick="editor.showScenePicker()" title="语义组合摆法：同一组元件的多种组合方式">组合方案</button>
+        <button class="btn btn-sm" onclick="editor.showSceneBrowser()" title="浏览全部语义场景，含连接安全检查">场景库</button>
+      </span>
+      <span class="toolbar-group">
+        <span class="toolbar-label">信息</span>
+        <span id="canvasInfo" style="font-size:11px;color:var(--text3)">0 个元件</span>
+        <span id="calibrationInfo" style="font-size:11px;color:var(--text3)"></span>
+      </span>
+    </div>
+    <div class="canvas-area" id="canvasArea">
+      <svg id="editorCanvas" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" style="width:800px;height:auto;aspect-ratio:4/3">
+<!-- height 写死会让窄容器下 max-width 压缩后出现 letterbox，坐标映射系统性错位；aspect-ratio 保持等比 -->
+        <rect width="400" height="300" fill="#fff"/>
+        <text x="200" y="150" text-anchor="middle" fill="var(--text3)" font-size="14" id="canvasPlaceholder">从左侧拖入元件，或点击"新建模板图"</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Right: Properties + Question Panel -->
+  <div class="editor-props">
+    <div class="props-header">属性面板</div>
+    <div class="props-body" id="propsBody">
+      <div style="color:var(--text3);text-align:center;padding:20px 0;font-size:12px">点击画布中的元件查看属性</div>
+    </div>
+    <div class="props-footer">
+      <button class="btn btn-sm" onclick="editor.annotationSelected()">添加标注</button>
+      <button class="btn btn-sm" onclick="editor.loadQuestionDiagram()">加载题目图</button>
+      <button class="btn btn-sm" onclick="editor.insertComponent()" title="让 AI 在已有题目图上插入新元件或标注">AI 插入元件</button>
+      <button class="btn btn-sm" onclick="editor.lockSelected()">锁选中</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/editor.js" defer></script>
+{% endblock %}

@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.session-card-title{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+#paperCard .btn-lg,#createCard .btn-lg{min-height:48px}
+#sessionList .actions{min-width:min(100%,150px)}
+</style>
+<div class="header"><h1>整卷上传</h1></div>
+
+<!-- Step 1: Create session -->
+<div class="card" id="createCard">
+  <div class="card-title">新建一份试卷记录</div>
+  <div class="row">
+    <div class="form-group"><label>试卷标题</label><input type="text" id="sessionTitle" placeholder="如: 2024北京数学一模"></div>
+    <div class="form-group"><label>学科</label><input type="text" id="sessionSubject" placeholder="如: 数学"></div>
+    <div class="form-group"><label>年级</label><input type="text" id="sessionGrade" placeholder="如: 高中三年级"></div>
+  </div>
+  <div class="form-group"><label>备注 (可选)</label><input type="text" id="sessionNotes" placeholder="如: 学校月考"></div>
+  <button class="btn btn-primary btn-lg" style="width:100%" onclick="createSession(this)">创建并开始上传</button>
+</div>
+
+<!-- Step 2: Upload images to session -->
+<div class="card" id="uploadCard" style="display:none">
+  <div class="card-title session-card-title">
+    <span>上传题目图片 -- <b id="sessTitle">-</b></span>
+    <span id="sessCount" style="font-size:13px;color:var(--text2)">已上传: 0 题</span>
+  </div>
+  <div class="row" style="align-items:flex-start">
+    <div style="flex:1;min-width:240px">
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple style="display:none" onchange="handleFiles(event)">
+      <div class="upload-zone" onclick="document.getElementById('fileInput').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('fileInput').click()}" id="dropZone" role="button" tabindex="0" aria-label="选择整卷题目图片">
+        <p>点击或拖拽上传（支持多张）</p>
+        <p class="hint" id="uploadModeHint">每张图片分别建立一道题，分批上传也可以</p>
+      </div>
+      <div id="uploadStatus" style="margin-top:10px"></div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <div class="form-group"><label>提示词 (可选)</label><textarea id="userHint" placeholder="整卷的总体提示"></textarea></div>
+      <div class="form-group"><label>知识点标签 (可选, 逗号分隔)</label><input type="text" id="userTags" placeholder="如: 导数, 概率, 解析几何"></div>
+      <div class="form-group"><label>上传模式</label><select id="uploadMode" onchange="onUploadModeChange()"><option value="one_per_image">每张图片一道题（默认）</option><option value="one_question_multi_image">多张图片组成一道题</option><option value="auto_split">自动识别并拆分多题</option></select></div>
+      <button class="btn btn-primary btn-lg" style="width:100%;margin-top:8px" id="processBtn" onclick="processSession()" disabled>请先上传题目</button>
+      <div id="processStatus" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3: Make paper from session -->
+<div class="card" id="paperCard" style="display:none">
+  <div class="card-title">组卷</div>
+  <div id="paperHint" class="alert" style="display:none"></div>
+  <div class="row">
+    <div class="form-group"><label>组卷方式</label><select id="paperType"><option value="custom">自定义</option><option value="mock_exam">模拟卷</option><option value="final_exam">压轴卷</option><option value="topic_exam">专题卷</option></select></div>
+    <div class="form-group"><label>纸张</label><select id="paperSize"><option value="A4">A4</option><option value="A3">A3</option></select></div>
+  </div>
+  <button class="btn btn-primary btn-lg" style="width:100%" id="makePaperBtn" onclick="makePaper()" disabled>等待题目处理完成</button>
+  <div id="paperResult" style="margin-top:8px"></div>
+</div>
+
+<!-- My Sessions -->
+<div class="card">
+  <div class="card-title">我的试卷记录</div>
+  <div id="sessionList"></div>
+</div>
+
+<script>
+var _sessionId=null, _sessTotal=0, _sessionPollTimer=null, _sessionUploadMode='one_per_image';
+
+async function loadSessions(){
+  try{
+    var data=await $API.get('/api/ocr/sessions');
+    var list=document.getElementById('sessionList');
+    if(!data.length){list.innerHTML='<div class="empty">暂无记录</div>';return}
+    var html='<table><thead><tr><th>标题</th><th>学科</th><th>年级</th><th>题目数</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody>';
+    data.forEach(function(s){
+      var n=(s.question_ids||[]).length;
+      var st={open:'待上传',processing:'处理中',ready:'待生成',attention:'需处理',done:'已完成'}[s.status]||'待处理';
+      html+='<tr><td><b>'+$esc(s.title)+'</b></td><td>'+$esc(s.subject||'-')+'</td><td>'+$esc(s.grade||'-')+'</td><td>'+n+'</td><td><span class="tag">'+st+'</span></td><td>'+$fmt(s.created_at)+'</td>';
+      html+='<td><div class="actions">';
+      var sid=(s.id||'');
+      if(s.status==='open')html+='<button class="btn btn-sm btn-primary" onclick="resumeSession(\''+sid+'\')">继续上传</button>';
+      if(['processing','ready','attention'].indexOf(s.status)>=0)html+='<button class="btn btn-sm" onclick="resumeSession(\''+sid+'\')">查看</button>';
+      if(s.status==='done'&&s.paper_id)html+='<a href="/papers/'+encodeURIComponent(s.paper_id)+'" class="btn btn-sm">查看试卷</a>';
+      html+='<button class="btn btn-sm btn-danger" onclick="delSession(\''+sid+'\')">删除</button>';
+      html+='</div></td></tr>';
+    });
+    html+='</tbody></table>';list.innerHTML=html;
+  }catch(e){document.getElementById('sessionList').innerHTML='<div class="empty">加载失败</div>'}
+}
+
+async function createSession(btn){
+  var title=document.getElementById('sessionTitle').value.trim()||'未命名试卷';
+  var subject=document.getElementById('sessionSubject').value.trim();
+  var grade=document.getElementById('sessionGrade').value.trim();
+  var notes=document.getElementById('sessionNotes').value.trim();
+  $busy(btn,true,'创建中...');
+  try{
+    var fd=new FormData();fd.append('title',title);fd.append('subject',subject);fd.append('grade',grade);fd.append('notes',notes);
+    var r=await $API.upload('/api/ocr/session/create',fd);
+    _sessionId=r.session_id; _sessTotal=0;
+    _sessionUploadMode=document.getElementById('uploadMode').value||'one_per_image';
+    document.getElementById('createCard').style.display='none';
+    document.getElementById('uploadCard').style.display='block';
+    document.getElementById('paperCard').style.display='block';
+    document.getElementById('sessTitle').textContent=title;
+    document.getElementById('sessCount').textContent='已上传: 0 题';
+    $toast('会话已创建，请上传题目图片');
+    loadSessions();
+  }catch(e){$toast(e.message,'error')}finally{$busy(btn,false)}
+}
+
+async function resumeSession(sid){
+  try{
+    var r=await $API.get('/api/ocr/session/'+encodeURIComponent(sid));
+    _sessionId=sid; _sessTotal=(r.question_ids||[]).length;
+    _sessionUploadMode=r.upload_mode||'one_per_image';
+    document.getElementById('uploadMode').value=_sessionUploadMode;
+    _updateUploadModeHint(_sessionUploadMode);
+    document.getElementById('createCard').style.display='none';
+    document.getElementById('uploadCard').style.display='block';
+    document.getElementById('paperCard').style.display='block';
+    document.getElementById('sessTitle').textContent=r.title;
+    document.getElementById('sessCount').textContent='已上传: '+_sessTotal+' 题';
+    document.getElementById('processBtn').disabled=_sessTotal===0;
+    if(_sessTotal>0)document.getElementById('processBtn').textContent='开始处理 ('+_sessTotal+' 题)';
+    $toast('已加载会话: '+r.title);
+    if(r.status==='processing')startPolling();
+    if(r.status==='ready'){
+      document.getElementById('paperHint').style.display='block';
+      document.getElementById('paperHint').textContent='全部题目已处理完成，可以生成试卷。';
+      document.getElementById('makePaperBtn').disabled=false;
+      document.getElementById('makePaperBtn').textContent='生成试卷';
+    }
+    if(r.status==='attention'){
+      document.getElementById('paperHint').style.display='block';
+      document.getElementById('paperHint').textContent='有 '+((r.counts&&r.counts.error)||0)+' 道题需要处理，请到题库修复或重试后再组卷。';
+      document.getElementById('makePaperBtn').disabled=true;
+    }
+  }catch(e){$toast(e.message,'error')}
+}
+
+async function uploadFiles(fileList){
+  if(!_sessionId){$toast('请先创建试卷记录','error');return}
+  fileList=Array.prototype.slice.call(fileList||[]);
+  var invalid=fileList.find(function(f){return ['image/jpeg','image/png','image/webp'].indexOf(f.type)<0||!f.size||f.size>10*1024*1024});
+  if(invalid){$toast('文件 '+invalid.name+' 不是有效图片或超过 10MB','error');return}
+  var mode=document.getElementById('uploadMode').value||'one_per_image';
+  var maxFiles=mode==='one_question_multi_image'?12:50;
+  if(fileList.length>maxFiles){$toast('本次最多选择 '+maxFiles+' 张图片','error');return}
+  if(mode==='one_question_multi_image'){
+    await uploadMultiFiles(fileList);
+    return;
+  }
+  var st=document.getElementById('uploadStatus');
+  for(var i=0;i<fileList.length;i++){
+    st.innerHTML='<span class="spin"></span> 上传 '+(i+1)+'/'+fileList.length+'...';
+    var fd=new FormData();fd.append('files',fileList[i]);fd.append('upload_mode',mode);
+    try{
+      var r=await $API.upload('/api/ocr/session/'+_sessionId+'/upload',fd);
+      _sessTotal=r.session_total;
+      _sessionUploadMode=r.upload_mode||mode;
+      document.getElementById('sessCount').textContent='已上传: '+_sessTotal+' 题';
+    }catch(e){st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">第'+(i+1)+'张失败: '+e.message+'</div>';return}
+  }
+  st.innerHTML='<div class="alert">已上传 '+_sessTotal+' 题。点击「开始处理」让 AI 批量解题。</div>';
+  document.getElementById('makePaperBtn').disabled=true;document.getElementById('makePaperBtn').textContent='等待题目处理完成';
+  document.getElementById('processBtn').disabled=false;
+  document.getElementById('processBtn').textContent='开始处理 ('+_sessTotal+' 题)';
+  loadSessions();
+}
+
+async function uploadMultiFiles(fileList){
+  var st=document.getElementById('uploadStatus');
+  st.innerHTML='<span class="spin"></span> 上传 '+fileList.length+' 张（多图一题）...';
+  var fd=new FormData();
+  for(var i=0;i<fileList.length;i++){fd.append('files',fileList[i]);}
+  fd.append('upload_mode','one_question_multi_image');
+  try{
+    var r=await $API.upload('/api/ocr/session/'+_sessionId+'/upload',fd);
+    _sessTotal=r.session_total;
+    _sessionUploadMode=r.upload_mode||'one_question_multi_image';
+    document.getElementById('sessCount').textContent='已上传: '+_sessTotal+' 题';
+    st.innerHTML='<div class="alert">已上传为同一道题（共 '+fileList.length+' 张）。点击「开始处理」让 AI 批量解题。</div>';
+    document.getElementById('makePaperBtn').disabled=true;document.getElementById('makePaperBtn').textContent='等待题目处理完成';
+    document.getElementById('processBtn').disabled=false;
+    document.getElementById('processBtn').textContent='开始处理 ('+_sessTotal+' 题)';
+    loadSessions();
+  }catch(e){
+    st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+e.message+'</div>';
+  }
+}
+
+function onUploadModeChange(){
+  var select=document.getElementById('uploadMode');
+  var next=select.value||'one_per_image';
+  if(_sessTotal>0&&next!==_sessionUploadMode){
+    select.value=_sessionUploadMode;
+    $toast('该整卷记录已有题目，不能切换上传模式','error');
+    return;
+  }
+  _sessionUploadMode=next;
+  document.getElementById('uploadStatus').innerHTML='';
+  _updateUploadModeHint(next);
+}
+
+function _updateUploadModeHint(mode){
+  document.getElementById('uploadModeHint').textContent={
+    one_per_image:'每张图片分别建立一道题，分批上传也可以',
+    one_question_multi_image:'本次选择的多张图片会合并为同一道题',
+    auto_split:'每张图片会自动识别并拆成多道独立题目'
+  }[mode]||'每张图片分别建立一道题，分批上传也可以';
+}
+
+function handleFiles(e){if(e.target.files.length)uploadFiles(e.target.files)}
+function setupDrop(){
+  var z=document.getElementById('dropZone');
+  z.addEventListener('dragover',function(e){e.preventDefault();z.classList.add('dragover')});
+  z.addEventListener('dragleave',function(){z.classList.remove('dragover')});
+  z.addEventListener('drop',function(e){e.preventDefault();z.classList.remove('dragover');if(e.dataTransfer.files.length)uploadFiles(e.dataTransfer.files)});
+}
+
+async function processSession(){
+  if(!_sessionId||!_sessTotal){$toast('请先上传题目','error');return}
+  var hint=document.getElementById('userHint').value.trim();
+  var tags=document.getElementById('userTags').value.trim();
+  var btn=document.getElementById('processBtn');
+  $busy(btn,true,'提交中...');
+  var mode=document.getElementById('uploadMode').value||_sessionUploadMode;
+  var split=mode==='auto_split'?'auto':'single';
+  var fd=new FormData();fd.append('user_hint',hint);fd.append('user_tags',tags);fd.append('split_mode',split);fd.append('upload_mode',mode);
+  try{
+    var r=await $API.upload('/api/ocr/session/'+_sessionId+'/process',fd);
+    document.getElementById('processStatus').innerHTML='<div class="alert">'+r.message+'。等待处理完成后可点击「生成试卷」。</div>';
+    document.getElementById('paperHint').style.display='block';
+    document.getElementById('paperHint').innerHTML='题目正在后台处理中。稍等片刻后点击「生成试卷」按钮。';
+    document.getElementById('makePaperBtn').disabled=true;
+    $toast(r.message,'ok');
+    startPolling();
+    loadSessions();
+  }catch(e){$toast(e.message,'error');$busy(btn,false)}
+}
+
+function startPolling(){
+  clearTimeout(_sessionPollTimer);
+  var started=Date.now();
+  function poll(){
+    if(Date.now()-started>10*60*1000){
+      document.getElementById('paperHint').innerHTML='处理超过 10 分钟，请检查失败题目或稍后重新进入本会话。';return;
+    }
+    $API.get('/api/ocr/session/'+_sessionId).then(function(s){
+      var total=(s.question_ids||[]).length,c=s.counts||{};
+      _sessTotal=total;
+      document.getElementById('sessCount').textContent='共 '+total+' 题 · 完成 '+(c.done||0)+' · 失败 '+(c.error||0);
+      if(s.ready){
+        document.getElementById('paperHint').innerHTML='全部 '+total+' 道题已处理完成，可以生成试卷。';
+        document.getElementById('makePaperBtn').disabled=false;
+        document.getElementById('makePaperBtn').textContent='生成试卷';
+        document.getElementById('processBtn').innerHTML='处理完成';
+        loadSessions();return;
+      }
+      if((c.error||0)>0 && (c.processing||0)===0){
+        document.getElementById('paperHint').innerHTML='有 '+c.error+' 道题处理失败。请到题库重试，全部完成后再组卷。';
+        document.getElementById('makePaperBtn').disabled=true;return;
+      }
+      document.getElementById('paperHint').innerHTML='处理中 '+(c.processing||0)+' 道，已完成 '+(c.done||0)+'/'+total+'。';
+      _sessionPollTimer=setTimeout(poll,3000);
+    }).catch(function(e){
+      document.getElementById('paperHint').innerHTML='状态查询失败：'+e.message;
+      _sessionPollTimer=setTimeout(poll,5000);
+    });
+  }
+  poll();
+}
+
+async function makePaper(){
+  var fd=new FormData();
+  fd.append('paper_type',document.getElementById('paperType').value);
+  fd.append('paper_size',document.getElementById('paperSize').value);
+  var btn=document.getElementById('makePaperBtn');
+  $busy(btn,true,'AI 组卷中...');
+  try{
+    var r=await $API.upload('/api/ocr/session/'+_sessionId+'/make-paper',fd);
+    document.getElementById('paperResult').innerHTML='<div class="alert"><a href="/papers/'+encodeURIComponent(r.paper_id)+'">查看试卷: '+$esc(r.title)+'</a></div>';
+    $toast('组卷完成','ok');
+    loadSessions();
+  }catch(e){$toast(e.message,'error');$busy(btn,false)}
+}
+
+async function delSession(id){if(!await $confirm('确定删除该上传任务？',{danger:true}))return;try{await $API.del('/api/ocr/session/'+encodeURIComponent(id));$toast('已删除','ok');loadSessions()}catch(e){$toast(e.message,'error')}}
+
+document.addEventListener('DOMContentLoaded', function(){
+  setupDrop();loadSessions();
+  var initialSession=new URLSearchParams(location.search).get('session');
+  if(initialSession&&/^[a-zA-Z0-9_-]{1,64}$/.test(initialSession)){resumeSession(initialSession)}
+});
+</script>
+{% endblock %}

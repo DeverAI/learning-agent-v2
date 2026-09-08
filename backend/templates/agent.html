@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+{% block sidebar_extra %}
+<div style="padding:8px;border-top:1px solid var(--border);margin-top:auto;display:flex;flex-direction:column;min-height:0;max-height:45vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-shrink:0">
+    <span style="font-size:12px;font-weight:600;color:var(--text2)">对话</span>
+    <button class="btn btn-sm" onclick="newSession(this)" style="padding:2px 10px;font-size:11px">+ 新建</button>
+  </div>
+  <div id="sessionList" style="font-size:12px;overflow-y:auto;flex:1;min-height:0"></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="header">
+  <h1>Agent</h1>
+  <div class="actions">
+    <button class="btn btn-sm" id="agentDel" style="display:none" onclick="delSession(this)">删除对话</button>
+  </div>
+</div>
+
+<div class="card" style="display:flex;flex-direction:column;min-height:65vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:6px">
+      <b id="currentTitle" style="font-size:15px;cursor:pointer" ondblclick="autoRenameCurrent()">新建或选择一个对话</b>
+      <button class="btn btn-sm" id="renameCurrentBtn" style="display:none;padding:2px 8px;font-size:11px" onclick="manualRenameCurrent(this)" title="重命名">改名</button>
+    <button class="btn btn-sm" id="autoRenameCurrentBtn" style="display:none;padding:2px 8px;font-size:11px" onclick="autoRenameCurrent(this)" title="AI 总结标题">AI</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3)" id="msgCount"></div>
+  </div>
+  <div id="agentSteps" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);font-size:13px">
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">执行步骤</div>
+    <div id="agentStepsBody"></div>
+  </div>
+  <div id="agentToolCalls" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);font-size:13px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:12px;font-weight:600;color:var(--text2)">工具调用</span>
+      <span id="agentToolCallsCount" style="font-size:11px;color:var(--text3)"></span>
+    </div>
+    <div id="agentToolCallsBody"></div>
+  </div>
+  <div id="agentMsgs" style="flex:1;overflow:auto;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--subtle);font-size:14px;min-height:350px">
+    <div class="empty" style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:60px 16px;color:var(--text3)">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="opacity:.45"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div style="font-size:14px">从左侧选择对话，或点击右上角 + 新建</div>
+      <div style="font-size:12px;line-height:1.6">支持多轮对话、意图识别、工具路由与上下文记忆</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;margin-top:10px">
+    <input type="text" id="agentInput" placeholder="输入消息...（支持多轮对话，有上下文记忆）" style="flex:1;padding:10px;font-size:14px" onkeydown="if(event.key==='Enter')sendAgent(document.getElementById('agentSend'))">
+    <button class="btn btn-primary" id="agentSend" onclick="sendAgent(this)" style="padding:10px 20px">发送</button>
+  </div>
+</div>
+
+<style>
+#agentStepsBody{position:relative;padding-left:8px}
+.agent-step-group{position:relative;margin-bottom:10px;padding-left:14px;border-left:2px solid var(--border)}
+.agent-step-group-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px}
+.agent-step{display:flex;align-items:flex-start;gap:8px;padding:3px 0;opacity:.6;transition:opacity .2s}
+.agent-step.active{opacity:1;font-weight:500}
+.agent-step.done{opacity:1}
+.agent-step-error{opacity:1;color:var(--err)}
+.agent-step-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);margin-top:5px;flex-shrink:0}
+.agent-step.active .agent-step-dot{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.agent-step.done .agent-step-dot{background:var(--ok)}
+.agent-step-error .agent-step-dot{background:var(--err)}
+.agent-step-text{flex:1;line-height:1.4;font-size:13px}
+.agent-step-meta{font-size:11px;color:var(--text3);white-space:nowrap;margin-left:6px;display:flex;gap:8px;align-items:center}
+.agent-step-time{font-size:10px;color:var(--text3)}
+.agent-tc-item{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;background:var(--subtle)}
+.agent-tc-header{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;user-select:none}
+.agent-tc-header:hover{background:var(--hover)}
+.agent-tc-icon{width:18px;height:18px;border-radius:4px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;color:var(--accent)}
+.agent-tc-name{flex:1;font-size:12px;font-weight:500}
+.agent-tc-status{font-size:10px;padding:1px 6px;border-radius:3px;flex-shrink:0}
+.agent-tc-status.done{background:var(--ok);color:#fff}
+.agent-tc-status.error{background:var(--err);color:#fff}
+.agent-tc-body{display:none;padding:8px 10px;font-size:12px;border-top:1px solid var(--border)}
+.agent-tc-body.open{display:block}
+.agent-tc-args,.agent-tc-result{margin-top:4px}
+.agent-tc-label{font-size:10px;color:var(--text3);margin-bottom:2px;font-weight:600}
+.agent-tc-code{background:var(--card-bg);border-radius:4px;padding:6px 8px;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto;border:1px solid var(--border)}
+</style>
+<script>
+var _sessions=[],_currentId=null;
+
+function loadSessions(){
+  window.$API.get('/api/sessions').then(function(r){
+    _sessions=r.sessions||[];
+    var h=_sessions.map(function(s){
+      var active=_currentId===s.id?'background:var(--hover);':'';
+      return'<div class="sess-item" style="'+active+'padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" data-sid="'+s.id+'" onclick="openSession(\''+s.id+'\')">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center">'+
+        '<div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">'+$esc(s.title)+'</div>'+
+        '<button class="btn btn-sm" style="padding:2px 6px;font-size:11px;margin-left:4px;flex-shrink:0" onclick="startRename(\''+s.id+'\',event)" title="重命名">改名</button>'+
+        '</div>'+
+        '<div style="font-size:10px;color:var(--text3)">'+$esc(s.created_at)+'</div>'+
+        '</div>';
+    }).join('');
+    document.getElementById('sessionList').innerHTML=h||'<div style="font-size:11px;color:var(--text3)">暂无对话</div>';
+  });
+}
+
+function newSession(btn){
+  $busy(btn,true,'创建中...');
+  window.$API.post('/api/sessions',{title:'新对话'}).then(function(s){
+    loadSessions();
+    openSession(s.id);
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+function openSession(sid){
+  _currentId=sid;
+  document.getElementById('agentInput').disabled=false;
+  document.getElementById('agentSend').disabled=false;
+  document.getElementById('agentDel').style.display='inline-flex';
+  document.getElementById('renameCurrentBtn').style.display='inline-flex';
+  document.getElementById('autoRenameCurrentBtn').style.display='inline-flex';
+  window.$API.get('/api/sessions/'+sid).then(function(s){
+    document.getElementById('currentTitle').textContent=s.title||'对话';
+    document.getElementById('msgCount').textContent=s.messages?Math.floor(s.messages.length/2)+'轮对话':'';
+    var el=document.getElementById('agentMsgs');el.innerHTML='';
+    (s.messages||[]).forEach(function(m){
+      if(m.role==='user'){
+        var d=document.createElement('div');
+        d.className='agent-msg-user';
+        d.textContent='[User] '+m.content;
+        el.appendChild(d);
+      }else{
+        var ad=document.createElement('div');
+        ad.className='agent-msg-ai';
+        var lb=document.createElement('b');lb.textContent='[AI] ';ad.appendChild(lb);
+        var md=document.createElement('div');md.style.cssText='font-size:13px';
+        ad.appendChild(md);el.appendChild(ad);
+        $md(m.content, md);
+      }
+    });
+    if(!s.messages||!s.messages.length)el.innerHTML='<div class="empty">开始聊天吧</div>';
+    el.scrollTop=el.scrollHeight;
+  });
+  loadSessions();
+}
+
+function sendAgent(btn){
+  var i=document.getElementById('agentInput'),m=i.value.trim();
+  if(!m)return;
+  if(!_currentId){
+    window.$API.post('/api/sessions',{title:'新对话'}).then(function(s){
+      loadSessions();openSession(s.id);
+      setTimeout(function(){sendAgentText(m,btn)},300);
+    });
+    return;
+  }
+  sendAgentText(m,btn);
+}
+function sendAgentText(m,btn){
+  var c=document.getElementById('agentMsgs');
+  var inp=document.getElementById('agentInput');
+  var ud=document.createElement('div');ud.className='agent-msg-user';
+  ud.textContent='[User] '+m;c.appendChild(ud);
+  var ld=document.createElement('div');ld.innerHTML='<span class="spin"></span>';c.appendChild(ld);
+  inp.value='';
+  inp.disabled=true;
+  $busy(btn,true,'发送中...');
+  showSteps([{parent:'意图识别',child:'解析消息',status:'running',time:''}]);
+  startStepsPoll();
+  window.$API.post('/api/sessions/'+_currentId+'/chat',{message:m}).then(function(r){
+    stopStepsPoll();
+    ld.remove();
+    showSteps(r.steps||[]);
+    showToolCalls(r.tool_calls||[]);
+    var ad=document.createElement('div');
+    ad.className='agent-msg-ai';
+    var label=document.createElement('b');label.textContent='[AI] ';ad.appendChild(label);
+    var md=document.createElement('div');md.style.cssText='font-size:13px';
+    ad.appendChild(md);c.appendChild(ad);
+    $md(r.reply, md);
+    if(r.action&&r.action.type==='jump_paper'){
+      var d=r.action.data||{};var sc=r.action.saved_config||'';
+      var card=document.createElement('div');
+      card.className='status-ok';
+      card.style.cssText='display:flex;align-items:center;gap:8px;margin:8px 0;padding:10px;border:2px solid currentColor;border-radius:8px;font-size:13px';
+      var ks=(d.knowledge_tags||[]).map(function(t){return encodeURIComponent(t)}).join(',');
+      var qs=sc?'?saved_config='+sc:'?subject='+encodeURIComponent(d.subject||'')+'&grade='+encodeURIComponent(d.grade||'')+'&knowledge_tags='+ks;
+      card.innerHTML='<span style="font-size:18px;font-weight:bold">&gt;&gt;</span>'+
+        '<div style="flex:1"><b>组卷参数已就绪</b><br><span style="font-size:12px;color:var(--text2)">'+$esc(d.subject||'')+' '+$esc(d.grade||'')+'</span></div>'+
+        '<button class="btn btn-primary btn-sm" onclick="window.open(\'/papers/generate'+qs+'\',\'_blank\')">跳转</button>';
+      c.appendChild(card);
+    }
+    if(r.action&&r.action.type==='set_style'){
+      var sc=document.createElement('div');
+      sc.className='status-ok';
+      sc.style.cssText='display:flex;align-items:center;gap:6px;margin:4px 0;padding:6px 10px;border-radius:4px;font-size:13px';
+      sc.innerHTML='<b style="font-size:14px">[成功]</b> 偏好已更新';
+      c.appendChild(sc);
+    }
+    if(r.action&&r.action.type==='set_style_error'){
+      var ec=document.createElement('div');
+      ec.className='status-error';
+      ec.style.cssText='display:flex;align-items:center;gap:6px;margin:4px 0;padding:6px 10px;border-radius:4px;font-size:13px';
+      ec.innerHTML='<b style="font-size:14px">[失败]</b> 操作失败';
+      c.appendChild(ec);
+    }
+    if(r.action&&r.action.type==='tool_need'){
+      var nc=document.createElement('div');
+      nc.className='status-warn';
+      nc.style.cssText='display:flex;align-items:center;gap:6px;margin:4px 0;padding:6px 10px;border-radius:4px;font-size:13px';
+      nc.innerHTML='<b style="font-size:14px">[注意]</b> 已记录需求: '+$esc(r.action.data.need||'');
+      c.appendChild(nc);
+    }
+    c.scrollTop=c.scrollHeight;
+    loadSessions();
+    var msgs=r.session?r.session.messages:[];
+    document.getElementById('msgCount').textContent=Math.floor(msgs.length/2)+'轮对话';
+  }).catch(function(e){
+    stopStepsPoll();
+    ld.remove();
+    showSteps([{parent:'执行',child:'请求失败',status:'error',time:''}]);
+    var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=e.message;c.appendChild(ed);
+    c.scrollTop=c.scrollHeight;
+  }).finally(function(){
+    inp.disabled=false;
+    $busy(btn,false);
+  });
+}
+
+async function delSession(btn){
+  if(!_currentId||!await $confirm('删除此对话？',{danger:true}))return;
+  $busy(btn,true,'删除中...');
+  window.$API.del('/api/sessions/'+_currentId).then(function(){
+    _currentId=null;
+    document.getElementById('agentInput').disabled=true;
+    document.getElementById('agentSend').disabled=true;
+    document.getElementById('agentDel').style.display='none';
+    document.getElementById('renameCurrentBtn').style.display='none';
+    document.getElementById('autoRenameCurrentBtn').style.display='none';
+    document.getElementById('agentMsgs').innerHTML='<div class="empty">选择一个对话</div>';
+    document.getElementById('currentTitle').textContent='新建或选择一个对话';
+    document.getElementById('msgCount').textContent='';
+    loadSessions();
+    $toast('已删除','ok');
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+async function startRename(sid, event, btn){
+  if(event) event.stopPropagation();
+  var s=_sessions.find(function(x){return x.id===sid});
+  if(!s) return;
+  var newTitle=await $prompt('重命名对话',{default:s.title||'对话',title:'重命名对话'});
+  if(newTitle===null || newTitle===undefined) return;
+  newTitle=String(newTitle).trim();
+  if(!newTitle){$toast('名称不能为空','error');return}
+  if(btn) $busy(btn,true,'重命名中...');
+  window.$API.patch('/api/sessions/'+sid+'/title',{title:newTitle}).then(function(r){
+    loadSessions();
+    if(_currentId===sid) document.getElementById('currentTitle').textContent=r.title||'对话';
+    $toast('已重命名','ok');
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){if(btn) $busy(btn,false)});
+}
+
+function manualRenameCurrent(btn){
+  if(!_currentId){$toast('请先选择对话','error');return}
+  startRename(_currentId,null,btn);
+}
+
+function autoRenameCurrent(btn){
+  if(!_currentId){$toast('请先选择对话','error');return}
+  $busy(btn,true,'总结中...');
+  $toast('正在总结标题...','ok');
+  window.$API.patch('/api/sessions/'+_currentId+'/title',{auto_summary:true}).then(function(r){
+    loadSessions();
+    document.getElementById('currentTitle').textContent=r.title||'对话';
+    $toast('标题已更新','ok');
+  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+}
+
+function showSteps(steps){
+  var box=document.getElementById('agentSteps');
+  var body=document.getElementById('agentStepsBody');
+  if(!steps||!steps.length){box.style.display='none';return;}
+  box.style.display='block';
+  body.innerHTML='';
+  // 按 parent 分组
+  var groups={};
+  steps.forEach(function(st){
+    var p=st.parent||'执行';
+    if(!groups[p]) groups[p]=[];
+    groups[p].push(st);
+  });
+  // 找到最后一个 running 步骤用于高亮
+  var lastRunning=-1,flatIdx=0;
+  steps.forEach(function(st,idx){
+    if(st.status==='running') lastRunning=idx;
+  });
+  if(lastRunning<0){
+    for(var i=steps.length-1;i>=0;i--){
+      if(steps[i].status==='done'){lastRunning=i;break;}
+    }
+  }
+  var globalIdx=0;
+  Object.keys(groups).forEach(function(parent){
+    var group=document.createElement('div');
+    group.className='agent-step-group';
+    var title=document.createElement('div');
+    title.className='agent-step-group-title';
+    title.textContent=parent;
+    group.appendChild(title);
+    groups[parent].forEach(function(st){
+      var row=document.createElement('div');
+      var cls='agent-step';
+      if(st.status==='error') cls+=' agent-step-error';
+      else if(globalIdx===lastRunning) cls+=' active';
+      else if(st.status==='done') cls+=' done';
+      row.className=cls;
+      var dot=document.createElement('div');dot.className='agent-step-dot';
+      var text=document.createElement('div');text.className='agent-step-text';
+      text.textContent=st.child||st.text||'';
+      var meta=document.createElement('div');meta.className='agent-step-meta';
+      var status=document.createElement('span');
+      if(st.status==='running') status.textContent='进行中';
+      else if(st.status==='error') status.textContent='失败';
+      else status.textContent='完成';
+      meta.appendChild(status);
+      if(st.time){
+        var tm=document.createElement('span');tm.className='agent-step-time';tm.textContent=st.time;meta.appendChild(tm);
+      }
+      row.appendChild(dot);
+      row.appendChild(text);
+      row.appendChild(meta);
+      group.appendChild(row);
+      globalIdx++;
+    });
+    body.appendChild(group);
+  });
+}
+
+function showToolCalls(toolCalls){
+  var box=document.getElementById('agentToolCalls');
+  var body=document.getElementById('agentToolCallsBody');
+  var count=document.getElementById('agentToolCallsCount');
+  if(!toolCalls||!toolCalls.length){box.style.display='none';return;}
+  box.style.display='block';
+  count.textContent=toolCalls.length+' 次调用';
+  body.innerHTML='';
+  toolCalls.forEach(function(tc){
+    var item=document.createElement('div');
+    item.className='agent-tc-item';
+    var header=document.createElement('div');
+    header.className='agent-tc-header';
+    var icon=document.createElement('div');icon.className='agent-tc-icon';icon.textContent='⚡';
+    var name=document.createElement('div');name.className='agent-tc-name';name.textContent=tc.name||'工具';
+    var status=document.createElement('span');status.className='agent-tc-status '+(tc.status||'done');
+    status.textContent=tc.status==='error'?'失败':'完成';
+    header.appendChild(icon);header.appendChild(name);header.appendChild(status);
+    var bodyEl=document.createElement('div');bodyEl.className='agent-tc-body';
+    if(tc.args&&Object.keys(tc.args).length){
+      var argsDiv=document.createElement('div');argsDiv.className='agent-tc-args';
+      var argsLabel=document.createElement('div');argsLabel.className='agent-tc-label';argsLabel.textContent='参数';
+      var argsCode=document.createElement('div');argsCode.className='agent-tc-code';
+      argsCode.textContent=JSON.stringify(tc.args,null,2);
+      argsDiv.appendChild(argsLabel);argsDiv.appendChild(argsCode);
+      bodyEl.appendChild(argsDiv);
+    }
+    if(tc.result){
+      var resDiv=document.createElement('div');resDiv.className='agent-tc-result';
+      var resLabel=document.createElement('div');resLabel.className='agent-tc-label';resLabel.textContent='结果';
+      var resCode=document.createElement('div');resCode.className='agent-tc-code';
+      resCode.textContent=tc.result;
+      resDiv.appendChild(resLabel);resDiv.appendChild(resCode);
+      bodyEl.appendChild(resDiv);
+    }
+    if(tc.time){
+      var timeDiv=document.createElement('div');timeDiv.style.cssText='font-size:10px;color:var(--text3);margin-top:4px';
+      timeDiv.textContent='⏱ '+tc.time;
+      bodyEl.appendChild(timeDiv);
+    }
+    header.onclick=function(){bodyEl.classList.toggle('open')};
+    item.appendChild(header);item.appendChild(bodyEl);
+    body.appendChild(item);
+  });
+}
+
+var _stepsPollTimer=null;
+function startStepsPoll(){
+  stopStepsPoll();
+  if(!_currentId) return;
+  _stepsPollTimer=setInterval(function(){
+    if(!_currentId) return;
+    window.$API.get('/api/sessions/'+_currentId+'/steps').then(function(r){
+      if(r.steps&&r.steps.length) showSteps(r.steps);
+    }).catch(function(e){});
+  },800);
+}
+function stopStepsPoll(){
+  if(_stepsPollTimer){clearInterval(_stepsPollTimer);_stepsPollTimer=null;}
+}
+
+function initAgent(){
+  loadSessions();
+  setTimeout(function(){
+    if(_sessions.length===0) newSession();
+  },600);
+}
+document.addEventListener('DOMContentLoaded', function(){ initAgent(); });
+</script>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.cc-intro{font-size:var(--fs-md);color:var(--text2);margin-bottom:var(--sp-4);line-height:1.6}
+.cc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:var(--sp-4);margin-bottom:var(--sp-6)}
+.cc-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-2xl);padding:26px;display:flex;flex-direction:column;transition:all .2s var(--ease-out);position:relative;overflow:hidden}
+.cc-card:hover{border-color:var(--accent);box-shadow:0 8px 24px var(--accent-glow);transform:translateY(-2px)}
+.cc-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--accent)}
+.cc-card.multi::before{background:var(--ok)}
+.cc-card-icon{width:48px;height:48px;border-radius:var(--r-xl);background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin-bottom:var(--sp-3)}
+.cc-card.multi .cc-card-icon{background:var(--ok-bg);color:var(--ok)}
+.cc-card-title{font-size:var(--fs-xl);font-weight:700;margin-bottom:var(--sp-2);color:var(--text)}
+.cc-card-desc{font-size:var(--fs-base);color:var(--text2);line-height:1.7;flex:1;margin-bottom:var(--sp-4)}
+.cc-card-btn{display:inline-block;padding:10px 20px;border-radius:var(--r-md);font-size:var(--fs-md);font-weight:600;text-align:center;cursor:pointer;border:none;background:var(--accent);color:var(--on-accent);text-decoration:none;transition:all .2s var(--ease-out)}
+.cc-card-btn:hover{filter:brightness(1.05);box-shadow:0 4px 14px var(--accent-glow)}
+.cc-card.multi .cc-card-btn{background:var(--ok)}
+.cc-section-title{font-size:var(--fs-lg);font-weight:600;margin-bottom:var(--sp-3);display:flex;justify-content:space-between;align-items:center}
+.cc-section-title a{font-size:var(--fs-base);color:var(--accent);font-weight:400}
+.cc-recent{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-xl);padding:var(--sp-4)}
+.cc-recent-item{display:flex;align-items:center;gap:var(--sp-3);padding:10px 0;border-bottom:1px solid var(--border)}
+.cc-recent-item:last-child{border-bottom:none}
+.cc-recent-item .ci-time{font-size:var(--fs-sm);color:var(--text3);width:130px;flex-shrink:0}
+.cc-recent-item .ci-score{font-size:var(--fs-base);font-weight:600;color:var(--text);width:80px;flex-shrink:0}
+.cc-recent-item .ci-preview{font-size:var(--fs-sm);color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cc-empty{text-align:center;padding:30px;color:var(--text3);font-size:var(--fs-base)}
+.cc-loading{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-4);justify-content:center;color:var(--text2);font-size:var(--fs-base)}
+@media(max-width:768px){
+  .cc-recent-item{flex-wrap:wrap}
+  .cc-recent-item .ci-time{width:auto;flex:1 1 100%}
+}
+</style>
+
+<div class="header">
+  <h1>批改中心</h1>
+  <a href="/correction/history" class="btn btn-sm">批改历史</a>
+</div>
+
+<div class="cc-intro">选择拍照检查范围。单题、单页和整卷均支持多张图片，系统会按模式决定是否拆题以及如何匹配原题。</div>
+
+<div class="cc-grid">
+  <div class="cc-card">
+    <div class="cc-card-icon">单</div>
+    <div class="cc-card-title">单题批改</div>
+    <div class="cc-card-desc">上传一道题的作答图片，AI 自动匹配题库并按得分点批改，返回得分点命中明细、错因分析与改进建议。</div>
+    <a href="/correct" class="cc-card-btn">开始批改</a>
+  </div>
+  <div class="cc-card">
+    <div class="cc-card-icon">页</div>
+    <div class="cc-card-title">单页检查</div>
+    <div class="cc-card-desc">上传一页或多张局部补充图，AI 按原顺序拆出独立题目，逐题匹配题库并给出检查结果。</div>
+    <a href="/correct?mode=single_page" class="cc-card-btn">检查单页</a>
+  </div>
+  <div class="cc-card multi">
+    <div class="cc-card-icon">卷</div>
+    <div class="cc-card-title">多题批改</div>
+    <div class="cc-card-desc">选择已生成的试卷，上传整份作答图片，AI 按试卷题目逐题批改并汇总成绩、等级与错题列表。</div>
+    <a href="/correct?mode=whole_paper" class="cc-card-btn">选择试卷</a>
+  </div>
+</div>
+
+<div class="cc-recent">
+  <div class="cc-section-title">
+    <span>最近批改记录</span>
+    <a href="/correction/history">查看全部</a>
+  </div>
+  <div id="recentBox">
+    <div class="cc-loading"><span class="spin"></span><span>加载中...</span></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function loadRecent(){
+    window.$API.get('/api/correction/history?limit=5').then(function(list){
+      var box = document.getElementById('recentBox');
+      if(!list || !list.length){
+        box.innerHTML = '<div class="cc-empty">暂无批改记录，去批改一道题试试吧</div>';
+        return;
+      }
+      var html = '';
+      list.forEach(function(it){
+        var tag = it.source_type === 'paper' ? '<span class="ci-tag paper">试卷</span>' : (it.source_type === 'page' ? '<span class="ci-tag page">单页</span>' : '<span class="ci-tag single">单题</span>');
+        var scoreTxt = $esc((it.score == null ? '-' : it.score) + ' / ' + (it.max_score == null ? '-' : it.max_score));
+        var preview = $esc(it.question_preview || (it.subject ? (it.subject + (it.grade ? ' · ' + it.grade : '')) : '无预览'));
+        html += '<div class="cc-recent-item">' +
+          '<div class="ci-time">' + $esc($fmt(it.created_at)) + '</div>' +
+          tag +
+          '<div class="ci-score">' + scoreTxt + '</div>' +
+          '<div class="ci-preview">' + preview + '</div>' +
+          '</div>';
+      });
+      box.innerHTML = html;
+    }).catch(function(e){
+      document.getElementById('recentBox').innerHTML = '<div class="cc-empty">加载失败：' + $esc(e.message || '未知错误') + '</div>';
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function(){ loadRecent(); });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <h1>Prompt 管理</h1>
+  <div class="actions">
+    <button class="btn" onclick="initDefaults(this)">初始化默认模板</button>
+    <button class="btn btn-primary" onclick="createNew(this)">新建模板</button>
+  </div>
+</div>
+
+<div id="promptList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px"></div>
+
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeEdit()" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <h2>编辑模板</h2>
+    <div class="form-group"><label>名称</label><input type="text" id="editName"></div>
+    <div class="form-group"><label>积木块 (点击插入光标位置)</label>
+      <div id="blockTags" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
+    </div>
+    <div class="form-group"><label>内容</label><textarea id="editContent" rows="11" style="font-family:monospace" onkeyup="updatePreview()" onclick="updatePreview()"></textarea></div>
+    <div class="form-group"><label>预览</label><div id="editPreview" style="background:var(--code-bg);color:var(--code-text);padding:14px;border-radius:6px;font-family:monospace;font-size:12px;white-space:pre-wrap;min-height:80px;max-height:220px;overflow:auto"></div></div>
+    <button class="btn btn-primary" onclick="saveEdit(this)">保存</button>
+    <input type="hidden" id="editId">
+  </div>
+</div>
+
+<script>
+var BLOCKS=[
+  {key:'grade',label:'年级',color:'var(--accent-soft)'},
+  {key:'subject',label:'学科',color:'var(--accent-soft)'},
+  {key:'user_prompt',label:'用户提示词',color:'var(--accent-soft)'},
+  {key:'question_count',label:'题目数量',color:'var(--accent-soft)'},
+  {key:'questions',label:'题目列表',color:'var(--accent-soft)'},
+  {key:'knowledge_tags',label:'知识点标签',color:'var(--accent-soft)'},
+  {key:'total_score',label:'总分',color:'var(--accent-soft)'},
+  {key:'exam_duration',label:'考试时长',color:'var(--accent-soft)'},
+  {key:'paper_size',label:'纸张大小',color:'var(--accent-soft)'},
+];
+
+var prompts=[];
+var _blockRendered=false;
+
+function renderBlockTags(){
+  if(_blockRendered)return;
+  var html='';
+  for(var i=0;i<BLOCKS.length;i++){
+    var b=BLOCKS[i];
+    html+='<span class="block-tag" style="background:'+b.color+'" onclick="insertBlock(\''+b.key+'\')" title="点击插入到光标位置">{'+b.key+'} <small>'+b.label+'</small></span>';
+  }
+  var el=document.getElementById('blockTags');
+  if(el)el.innerHTML=html;
+  _blockRendered=true;
+}
+
+function init(){
+  renderBlockTags();
+  loadPrompts();
+}
+
+async function loadPrompts(){
+  try{
+    prompts=await $API.get('/api/prompts');
+    var list=document.getElementById('promptList');
+    if(!prompts.length){list.innerHTML='<div class="empty" style="grid-column:1/-1">暂无模板，点击「初始化默认模板」</div>';return}
+    var html='';
+    for(var i=0;i<prompts.length;i++){
+      var p=prompts[i];
+      var tt=p.type==='system'?'系统':p.type==='preset'?'预设':'自定义';
+      html+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>'+$esc(p.name)+'</b><div><span class="tag">'+tt+'</span>'+(p.is_default?' <span class="tag">默认</span>':'')+'</div></div><div style="font-size:12px;color:var(--text2);max-height:100px;overflow:auto;white-space:pre-wrap;margin-bottom:6px">'+$esc(p.content)+'</div><div style="margin-bottom:6px">'+(' '+(p.blocks||[]).map(function(b){return'<span class="tag">{$esc(b)}</span>'}).join(' '))+'</div><div class="actions"><button class="btn btn-sm btn-primary" onclick="editPrompt(\''+p.id+'\')">编辑</button>'+(p.is_default?'<button class="btn btn-sm" onclick="resetPrompt(\''+p.id+'\')">恢复默认</button>':'<button class="btn btn-sm btn-danger" onclick="delPrompt(\''+p.id+'\')">删除</button>')+'</div></div>';
+    }
+    list.innerHTML=html;
+  }catch(e){$toast('加载模板失败: '+(e.message||'网络错误'),'error')}
+}
+
+function editPrompt(id){
+  for(var i=0;i<prompts.length;i++){if(prompts[i].id===id){var p=prompts[i];break}}
+  if(!p)return;
+  document.getElementById('editId').value=id;
+  document.getElementById('editName').value=p.name;
+  document.getElementById('editContent').value=p.content;
+  renderBlockTags();
+  updatePreview();
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeEdit(){document.getElementById('editModal').classList.remove('show')}
+
+async function createNew(btn){
+  try{
+    $busy(btn,true,'创建中...');
+    var r=await $API.post('/api/prompts',{name:'新建模板',type:'custom',content:'你是专业的{grade}{subject}教师。请生成试卷：\n\n{user_prompt}\n\n{questions}',blocks:['grade','subject','user_prompt','questions']});
+    await loadPrompts();
+    editPrompt(r.id);
+  }catch(e){$busy(btn,false);$toast('创建失败: '+(e.message||''),'error')}
+}
+
+async function saveEdit(btn){
+  var id=document.getElementById('editId').value;
+  var name=document.getElementById('editName').value;
+  var content=document.getElementById('editContent').value;
+  var blocks=[];
+  for(var i=0;i<BLOCKS.length;i++){if(content.indexOf('{'+BLOCKS[i].key+'}')>=0)blocks.push(BLOCKS[i].key)}
+  try{
+    $busy(btn,true,'保存中...');
+    await $API.put('/api/prompts/'+id,{name:name,content:content,blocks:blocks});
+    $toast('已保存','ok');
+    closeEdit();
+    loadPrompts();
+  }catch(e){$busy(btn,false);$toast('保存失败: '+(e.message||''),'error')}
+}
+
+function insertBlock(key){
+  var ta=document.getElementById('editContent');
+  var s=ta.selectionStart,e=ta.selectionEnd;
+  var v=ta.value,ph='{'+key+'}';
+  ta.value=v.substring(0,s)+ph+v.substring(e);
+  ta.focus();ta.setSelectionRange(s+ph.length,s+ph.length);
+  updatePreview();
+}
+
+function updatePreview(){
+  var content=document.getElementById('editContent').value;
+  var html='';
+  var parts=content.split(/(\{[^}]+\})/g);
+  for(var i=0;i<parts.length;i++){
+    var part=parts[i];
+    var m=part.match(/^\{([^}]+)\}$/);
+    if(m){
+      var found=null;
+      for(var j=0;j<BLOCKS.length;j++){if(BLOCKS[j].key===m[1]){found=BLOCKS[j];break}}
+      html+='<span style="background:'+(found?found.color:'var(--accent-soft)')+';color:var(--accent);padding:1px 6px;border-radius:3px;margin:0 1px">'+part+'</span>';
+    }else{
+      html+=$esc(part);
+    }
+  }
+  document.getElementById('editPreview').innerHTML=html;
+}
+
+async function delPrompt(id){if(!await $confirm('确定删除该模板？',{danger:true}))return;try{await $API.del('/api/prompts/'+id);$toast('已删除','ok');loadPrompts()}catch(e){$toast('删除失败: '+(e.message||''),'error')}}
+async function resetPrompt(id){if(!await $confirm('恢复默认内容？当前修改将丢失。'))return;try{await $API.post('/api/prompts/'+id+'/reset');$toast('已恢复','ok');loadPrompts()}catch(e){$toast('恢复失败: '+(e.message||''),'error')}}
+async function initDefaults(btn){try{$busy(btn,true,'初始化中...');var r=await $API.post('/api/prompts/init-defaults');$toast(r.message,'ok');loadPrompts()}catch(e){$busy(btn,false);$toast('初始化失败: '+(e.message||''),'error')}}
+
+document.getElementById('editModal').addEventListener('click',function(e){if(e.target===this)closeEdit()});
+document.addEventListener('DOMContentLoaded', function(){ init(); });
+</script>
+{% endblock %}

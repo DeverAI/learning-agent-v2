@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header anim-scale">
+  <div>
+    <h1>首页</h1>
+    <p style="font-size:13px;color:var(--text3);margin-top:4px">常用入口、每日一言与系统通知</p>
+  </div>
+  <button class="btn btn-sm" id="widgetEditBtn" onclick="toggleWidgetEdit()">编辑组件</button>
+</div>
+
+<div class="card quote-card anim-in" style="text-align:center;padding:32px 28px;max-width:520px;margin:0 auto 20px auto;position:relative;border:1px solid var(--border)">
+  <svg class="quote-mark qm-top" style="position:absolute;top:8px;left:12px;pointer-events:none;transform:rotate(180deg)" width="52" height="52" viewBox="0 0 24 24" fill="currentColor"><path d="M6 17h3l2-4V7H5v6h3l-2 4zm8 0h3l2-4V7h-6v6h3l-2 4z"/></svg>
+  <svg class="quote-mark qm-bottom" style="position:absolute;bottom:8px;right:12px;pointer-events:none" width="52" height="52" viewBox="0 0 24 24" fill="currentColor"><path d="M6 17h3l2-4V7H5v6h3l-2 4zm8 0h3l2-4V7h-6v6h3l-2 4z"/></svg>
+  <div id="dailyQuote" style="font-size:18px;line-height:1.95;color:var(--text);min-height:44px;position:relative;z-index:1;font-weight:400">
+    <span class="spin"></span>
+  </div>
+  <div id="dailySource" style="font-size:13px;color:var(--text3);margin-top:12px;position:relative;z-index:1;font-style:italic"></div>
+</div>
+
+<!-- Widget Editor Panel -->
+<div class="card anim-in" id="widgetEditor" style="display:none;margin-bottom:14px">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>编辑首页组件</span>
+    <div>
+      <button class="btn btn-sm" onclick="resetWidgetLayout()">恢复默认</button>
+      <button class="btn btn-primary btn-sm" onclick="saveWidgetLayout()" style="margin-left:6px">保存</button>
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--text3);margin-bottom:12px">拖拽下方卡片调整顺序；点击“×”移除，从“可用组件”中点击添加。</p>
+  <div style="font-size:13px;font-weight:600;margin-bottom:8px">当前显示</div>
+  <div class="widget-pool" id="activeWidgets"></div>
+  <div style="font-size:13px;font-weight:600;margin:14px 0 8px">可用组件</div>
+  <div class="widget-pool" id="availableWidgets"></div>
+</div>
+
+<!-- Widget Grid -->
+<div class="widget-grid" id="widgetGrid"></div>
+
+<!-- System Messages -->
+<div class="card" id="msgCard" style="display:none">
+  <div class="sys-header">
+    <span>系统消息 <span id="msgBadge" class="sys-badge" style="display:none">0</span></span>
+    <div><button class="btn btn-sm" onclick="clearAllMsgs()">清空</button><button class="btn btn-sm" onclick="markMsgRead()" style="margin-left:4px">全部已读</button></div>
+  </div>
+  <div id="msgList"></div>
+</div>
+
+<script>
+function _dashEsc(value){
+  return String(value==null?'':value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+/* app.js 为 defer 加载，$API 在 DOMContentLoaded 前就绪；统一等 DOMContentLoaded 再拉数据 */
+document.addEventListener('DOMContentLoaded',function(){loadMessages()});
+
+function loadMessages(){
+  window.$API.get('/api/system-messages?limit=20').then(function(r){
+    var msgs=r.messages||[];
+    var el=document.getElementById('msgList');
+    var card=document.getElementById('msgCard');
+    if(!msgs.length){card.style.display='none';return}
+    card.style.display='block';
+    var unread=msgs.filter(function(m){return !m.read}).length;
+    var badge=document.getElementById('msgBadge');
+    if(unread>0){badge.style.display='inline';badge.textContent=unread}else{badge.style.display='none'}
+    el.innerHTML=msgs.map(function(m,i){
+      var cls=m.read?'sys-msg':'sys-msg sys-msg-unread';
+      var typeLabel={audit_result:'A',daily_quote:'Q'}[m.type]||'S';
+      var typeIcon={audit_result:'!',daily_quote:'"'}[m.type]||'i';
+      var qlink=m.question_id?' <a href="/questions?highlight='+encodeURIComponent(m.question_id)+'" style="font-size:12px;color:var(--text2)">查看</a>':'';
+      return '<div class="'+cls+'">'+
+        '<div class="sys-type sys-type-'+typeLabel+'">'+typeIcon+'</div>'+
+        '<div class="sys-body">'+
+          '<div class="sys-title">'+_dashEsc(m.title)+qlink+'</div>'+
+          '<div class="sys-content">'+_dashEsc(m.content)+'</div>'+
+          '<div class="sys-time">'+new Date(m.time).toLocaleString('zh-CN')+'</div>'+
+        '</div>'+
+        '<button class="sys-del" onclick="deleteMsg('+i+')" title="删除" aria-label="删除"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button>'+
+        '</div>';
+    }).join('');
+  }).catch(function(e){if(typeof $toast==='function')$toast('系统消息加载失败','error')});
+}
+
+function markMsgRead(){
+  window.$API.post('/api/system-messages/read',{}).then(function(){
+    document.getElementById('msgBadge').style.display='none';
+    loadMessages();
+  }).catch(function(e){if(typeof $toast==='function')$toast(e.message||'操作失败','error')});
+}
+async function deleteMsg(i){
+  if(!await $confirm('删除此消息？',{danger:true}))return;
+  window.$API.del('/api/system-messages/'+i).then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast(e.message||'删除失败','error')});
+}
+async function clearAllMsgs(){
+  if(!await $confirm('清空所有系统消息？',{danger:true}))return;
+  window.$API.del('/api/system-messages/all').then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast(e.message||'清空失败','error')});
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+window.$API.get('/api/daily-quote').then(function(r){
+  var qEl = document.getElementById('dailyQuote');
+  var sEl = document.getElementById('dailySource');
+  if(!qEl) return;
+  if(r && r.quote){
+    qEl.textContent = r.quote;
+    if(r.font){
+      qEl.style.fontFamily = r.font + ', sans-serif';
+    }
+    if(r.source && sEl){
+      sEl.textContent = '—— ' + r.source;
+    }
+    qEl.classList.add('anim-fade');
+    if(sEl) sEl.classList.add('anim-fade');
+  }else{
+    qEl.textContent = '保持好奇，持续探索';
+    qEl.classList.add('anim-fade');
+  }
+}).catch(function(){
+  var qEl = document.getElementById('dailyQuote');
+  if(qEl){
+    qEl.textContent = '保持好奇，持续探索';
+    var span=qEl.querySelector('.spin');if(span)span.remove();
+    qEl.classList.add('anim-fade');
+  }
+});
+});
+
+var _layout=[];
+var _editMode=false;
+var _dragSrc=null;
+
+var _FALLBACK_WIDGETS=[
+  {id:'upload_question',title:'上传题目',url:'/batch-upload',default_enabled:true},
+  {id:'editor',title:'实验图编辑',url:'/editor',default_enabled:false},
+  {id:'notes',title:'笔记整理',url:'/notes',default_enabled:true},
+  {id:'knowledge',title:'题库管理',url:'/questions',default_enabled:true},
+  {id:'papers',title:'试卷列表',url:'/papers',default_enabled:true},
+  {id:'paper_generate',title:'组卷中心',url:'/papers/generate',default_enabled:true},
+  {id:'focus_mode',title:'专注模式',url:'/focus',default_enabled:true},
+  {id:'dashboard',title:'首页',url:'/',default_enabled:false}
+];
+var _widgets=_FALLBACK_WIDGETS.slice();
+
+function _normalizeWidgetLayout(layout){
+  var known=new Set(_widgets.map(function(w){return w.id}));
+  var seen=new Set();
+  return (Array.isArray(layout)?layout:[]).filter(function(id){
+    if(!known.has(id)||seen.has(id))return false;
+    seen.add(id);return true;
+  });
+}
+
+async function loadWidgets(){
+  try{
+    var r=await $API.get('/api/home-widgets');
+    _widgets=(r.widgets&&r.widgets.length)?r.widgets:_FALLBACK_WIDGETS;
+    _layout=_normalizeWidgetLayout(r.layout);
+    renderWidgetGrid();
+    if(_editMode) renderWidgetEditor();
+  }catch(e){
+    _widgets=_FALLBACK_WIDGETS;
+    _layout=_widgets.filter(function(w){return w.default_enabled}).map(function(w){return w.id});
+    renderWidgetGrid();
+    if(_editMode) renderWidgetEditor();
+  }
+}
+
+function _widgetInfo(id){
+  return _widgets.find(function(w){return w.id===id})||_FALLBACK_WIDGETS.find(function(w){return w.id===id})||{id:id,title:id,url:'/'};
+}
+
+function _widgetIcon(id){
+  var icons={
+    upload_question:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+    search:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>',
+    correct_single:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>',
+    correct_paper:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>',
+    correct_center:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>',
+    editor:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>',
+    notes:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
+    knowledge:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    papers:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    paper_generate:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    focus_mode:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+     dashboard:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'
+  };
+  return icons[id]||icons.dashboard;
+}
+
+function renderWidgetGrid(){
+  var grid=document.getElementById('widgetGrid');
+  _layout=_normalizeWidgetLayout(_layout);
+  if(!_layout.length){
+    grid.innerHTML='<div class="empty">暂无组件，点击右上角“编辑组件”进行配置</div>';return;
+  }
+  grid.innerHTML=_layout.map(function(id){
+    var w=_widgetInfo(id);
+    return '<a href="'+$esc(w.url)+'" class="widget-card anim-in" data-wid="'+$esc(id)+'">'+
+      '<div class="widget-icon">'+_widgetIcon(id)+'</div>'+
+      '<div class="widget-title">'+$esc(w.title)+'</div>'+
+      '</a>';
+  }).join('');
+}
+
+function toggleWidgetEdit(){
+  _editMode=!_editMode;
+  document.getElementById('widgetEditor').style.display=_editMode?'block':'none';
+  document.getElementById('widgetEditBtn').textContent=_editMode?'完成':'编辑组件';
+  if(_editMode) renderWidgetEditor();
+}
+
+function renderWidgetEditor(){
+  var active=document.getElementById('activeWidgets');
+  active.innerHTML='';
+  _layout.forEach(function(id,i){
+    var w=_widgetInfo(id);
+    var el=document.createElement('div');
+    el.className='widget-chip';
+    el.draggable=true;
+    el.dataset.index=i;
+    el.dataset.wid=id;
+    el.innerHTML='<span class="widget-drag">拖动</span>'+
+      '<span>'+$esc(w.title)+'</span>'+
+      '<button class="widget-order" onclick="moveWidget('+i+',-1)" title="前移"'+(i===0?' disabled':'')+'>前移</button>'+
+      '<button class="widget-order" onclick="moveWidget('+i+',1)" title="后移"'+(i===_layout.length-1?' disabled':'')+'>后移</button>'+
+      '<button class="widget-remove" onclick="removeWidget('+i+')" title="移除">移除</button>';
+    el.addEventListener('dragstart',onDragStart);
+    el.addEventListener('dragover',onDragOver);
+    el.addEventListener('drop',onDrop);
+    el.addEventListener('dragend',onDragEnd);
+    active.appendChild(el);
+  });
+
+  var avail=document.getElementById('availableWidgets');
+  avail.innerHTML='';
+  var activeSet=new Set(_layout);
+  _widgets.forEach(function(w){
+    if(activeSet.has(w.id)) return;
+    var el=document.createElement('div');
+    el.className='widget-chip widget-chip-add';
+    el.innerHTML='<span>'+$esc(w.title)+'</span>'+
+      '<button class="widget-add" onclick="addWidget(\''+$esc(w.id)+'\')" title="添加">添加</button>';
+    avail.appendChild(el);
+  });
+  if(!avail.children.length) avail.innerHTML='<span style="font-size:12px;color:var(--text3)">已全部添加</span>';
+}
+
+function addWidget(id){
+  if(!_widgets.some(function(w){return w.id===id})||_layout.indexOf(id)>=0)return;
+  _layout.push(id);
+  renderWidgetGrid();
+  renderWidgetEditor();
+}
+function removeWidget(i){
+  if(i<0||i>=_layout.length)return;
+  _layout.splice(i,1);
+  renderWidgetGrid();
+  renderWidgetEditor();
+}
+function moveWidget(i,delta){
+  var target=i+delta;
+  if(i<0||i>=_layout.length||target<0||target>=_layout.length)return;
+  var item=_layout.splice(i,1)[0];
+  _layout.splice(target,0,item);
+  renderWidgetGrid();renderWidgetEditor();
+}
+function resetWidgetLayout(){
+  var source=_widgets&&_widgets.length?_widgets:_FALLBACK_WIDGETS;
+  _layout=source.filter(function(w){return w.default_enabled}).map(function(w){return w.id});
+  renderWidgetGrid();renderWidgetEditor();
+}
+async function saveWidgetLayout(){
+  try{
+    var saved=await $API.post('/api/home-widgets',{layout:_layout});
+    _layout=_normalizeWidgetLayout(saved.layout);
+    $toast('首页布局已保存','ok');
+    _editMode=false;
+    document.getElementById('widgetEditor').style.display='none';
+    document.getElementById('widgetEditBtn').textContent='编辑组件';
+    renderWidgetGrid();
+  }catch(e){
+    $toast(e.message||'保存失败','error');
+  }
+}
+
+function onDragStart(e){
+  _dragSrc=this;
+  e.dataTransfer.effectAllowed='move';
+  try{e.dataTransfer.setData('text/plain',this.dataset.wid||'')}catch(err){}
+  this.classList.add('dragging');
+}
+function onDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+}
+function onDrop(e){
+  e.stopPropagation();e.preventDefault();
+  if(!_dragSrc||_dragSrc===this) return;
+  var src=parseInt(_dragSrc.dataset.index,10);
+  var dst=parseInt(this.dataset.index,10);
+  var item=_layout.splice(src,1)[0];
+  _layout.splice(dst,0,item);
+  renderWidgetEditor();
+  renderWidgetGrid();
+  return false;
+}
+function onDragEnd(){
+  this.classList.remove('dragging');
+  _dragSrc=null;
+}
+
+document.addEventListener('DOMContentLoaded',function(){loadWidgets()});
+</script>
+{% endblock %}

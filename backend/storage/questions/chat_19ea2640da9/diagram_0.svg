@@ -1,0 +1,25 @@
+<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- 正方形 -->
+  <!-- AC所在的正方形（向左） -->
+  <polygon points="150,210 30,210 30,90 150,90" fill="none" stroke="#222" stroke-width="2" stroke-linejoin="round"/>
+  <!-- BC所在的正方形（向下） -->
+  <polygon points="150,210 150,300 240,300 240,210" fill="none" stroke="#222" stroke-width="2" stroke-linejoin="round"/>
+  <!-- AB所在的正方形（向右上） -->
+  <polygon points="150,90 270,0 360,120 240,210" fill="none" stroke="#222" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- 三角形ABC -->
+  <polygon points="150,90 240,210 150,210" fill="none" stroke="#222" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- 直角符号 -->
+  <path d="M 150 200 L 160 200 L 160 210" fill="none" stroke="#222" stroke-width="2"/>
+
+  <!-- 顶点标签 -->
+  <text x="130" y="85" font-size="16" font-family="sans-serif" fill="#111">A</text>
+  <text x="250" y="215" font-size="16" font-family="sans-serif" fill="#111">B</text>
+  <text x="130" y="225" font-size="16" font-family="sans-serif" fill="#111">C</text>
+
+  <!-- 边长标签 -->
+  <text x="160" y="155" font-size="16" font-family="sans-serif" fill="#111">b</text>
+  <text x="195" y="230" font-size="16" font-family="sans-serif" fill="#111">a</text>
+  <text x="170" y="175" font-size="16" font-family="sans-serif" fill="#111">c</text>
+</svg>

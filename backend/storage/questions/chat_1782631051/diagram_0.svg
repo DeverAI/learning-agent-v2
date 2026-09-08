@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <!-- 直角边 AC（垂直） -->
+  <line x1="100" y1="70" x2="100" y2="220" stroke="#222" stroke-width="2"/>
+
+  <!-- 直角边 BC（水平） -->
+  <line x1="100" y1="220" x2="300" y2="220" stroke="#222" stroke-width="2"/>
+
+  <!-- 斜边 AB -->
+  <line x1="100" y1="70" x2="300" y2="220" stroke="#222" stroke-width="2"/>
+
+  <!-- 高线 CD（虚线）从直角顶点C到斜边AB的垂足D -->
+  <line x1="100" y1="220" x2="172" y2="124" stroke="#666" stroke-width="1.5" stroke-dasharray="5,4"/>
+
+  <!-- 直角标记在C点（┐符号） -->
+  <polyline points="115,220 115,205 100,205" fill="none" stroke="#222" stroke-width="1.5"/>
+
+  <!-- 直角标记在D点（┐符号，表示CD⟂AB） -->
+  <polyline points="163,131 170,139 178,131" fill="none" stroke="#666" stroke-width="1.2"/>
+
+  <!-- 顶点A标签 -->
+  <text x="88" y="62" font-size="16" font-family="sans-serif" fill="#111">A</text>
+
+  <!-- 顶点B标签 -->
+  <text x="308" y="235" font-size="16" font-family="sans-serif" fill="#111">B</text>
+
+  <!-- 顶点C标签 -->
+  <text x="88" y="238" font-size="16" font-family="sans-serif" fill="#111">C</text>
+
+  <!-- 垂足D标签 -->
+  <text x="178" y="116" font-size="14" font-family="sans-serif" fill="#111">D</text>
+
+  <!-- 顶点小圆点 -->
+  <circle cx="100" cy="70" r="3" fill="#222"/>
+  <circle cx="300" cy="220" r="3" fill="#222"/>
+  <circle cx="100" cy="220" r="3" fill="#222"/>
+  <circle cx="172" cy="124" r="2.5" fill="#666"/>
+</svg>

@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.correct-section{margin-bottom:var(--sp-4)}
+.correct-section h3{font-size:var(--fs-lg);font-weight:600;margin-bottom:var(--sp-2);color:var(--text)}
+.report-empty{text-align:center;padding:var(--sp-4);color:var(--text3);font-size:var(--fs-base)}
+.correct-actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-4);flex-wrap:wrap}
+.correct-actions .btn{min-height:44px;flex:1 1 140px}
+</style>
+
+<div class="header">
+  <h1>拍照检查</h1>
+  <a href="/correctCenter" class="btn btn-sm">返回批改中心</a>
+</div>
+
+<div class="card">
+  <div class="card-title">检查范围</div>
+  <div class="capture-selector" id="captureSelector">
+    <label class="capture-option"><input type="radio" name="captureMode" value="single_question" checked><b>单题</b><span>多张图共同组成一道题或一份作答</span></label>
+    <label class="capture-option"><input type="radio" name="captureMode" value="single_page"><b>单页</b><span>拆出页面内题目并逐题检查</span></label>
+    <label class="capture-option"><input type="radio" name="captureMode" value="whole_paper"><b>整卷</b><span>选择试卷后上传多页作答</span></label>
+  </div>
+</div>
+
+<div class="card" id="wholePaperPanel" style="display:none">
+  <div class="card-title">选择对应试卷</div>
+  <div class="row"><div class="form-group" style="flex:1"><label>已生成试卷</label><select id="paperSelect"><option value="">加载中...</option></select></div><button class="btn btn-primary" id="openPaperBtn" type="button">进入整卷检查</button></div>
+  <div class="hint">整卷检查需要原试卷的题目顺序和得分点，进入后可一次上传多页照片。</div>
+</div>
+
+<div class="card">
+  <div class="card-title" id="uploadTitle">上传单题作答图片</div>
+  <div class="upload-zone" id="correctDropZone" role="button" tabindex="0" aria-label="选择作答图片">
+    <input type="file" id="correctFileInput" accept="image/jpeg,image/png,image/webp" multiple>
+    <p>点击或拖拽上传学生作答图片</p>
+    <p class="hint" id="correctCaptureHint">可选择多张图片，系统会把它们作为同一道题识别；单张最大 10MB</p>
+    <div id="correctPreviews" class="upload-previews" style="display:none"></div>
+  </div>
+  <div class="upload-status" id="correctStatus"></div>
+  <div class="correct-loading" id="loadingBox" style="display:none">
+    <span class="spin"></span>
+    <span class="load-text" id="loadingText">正在处理...</span>
+  </div>
+</div>
+
+<div class="card" id="pageReportCard" style="display:none">
+  <div class="card-title">单页检查结果</div>
+  <div id="pageReportSummary" class="alert"></div>
+  <div id="pageReportResults"></div>
+</div>
+
+<div class="card" id="ocrCard" style="display:none">
+  <div class="card-title">识别到的作答</div>
+  <div class="report-text" id="ocrTextBox"></div>
+</div>
+
+<div class="card" id="matchedCard" style="display:none">
+  <div class="card-title">匹配到的原题</div>
+  <div class="matched-info" id="matchedInfo"></div>
+  <div class="report-text" id="matchedPreview"></div>
+</div>
+
+<div class="card" id="reportCard" style="display:none">
+  <div class="card-title">批改报告</div>
+  <div class="score-ring" id="scoreRing" style="--pct:0">
+    <div class="score-ring-inner">
+      <div class="score-ring-num" id="scoreNum">0</div>
+      <div class="score-ring-label">得分</div>
+    </div>
+  </div>
+  <div style="text-align:center;font-size:var(--fs-base);color:var(--text2);margin-bottom:var(--sp-4)">满分 <span id="maxScore">0</span></div>
+
+  <div class="stat-grid" id="statGrid"></div>
+
+  <div class="correct-section">
+    <h3>得分点明细</h3>
+    <div id="pointsBox"></div>
+  </div>
+
+  <div class="correct-section">
+    <h3>整体评语</h3>
+    <div class="report-text" id="feedbackBox"></div>
+  </div>
+
+  <div class="correct-section">
+    <h3>错因分析</h3>
+    <div class="report-err" id="errorBox"></div>
+  </div>
+
+  <div class="correct-section">
+    <h3>改进建议</h3>
+    <div class="report-ok" id="suggestBox"></div>
+  </div>
+
+  <div id="collapseWrap"></div>
+
+  <div class="correct-actions" id="actionBar"></div>
+</div>
+
+<script>
+(function(){
+  var currentQueryId = null;
+  var pollTimer = null;
+  var pollErrorCount = 0;
+  var pollStartedAt = 0;
+  var uploading = false;
+  var correcting = false;
+  var savingNote = false;
+  var lastReport = null;
+  var MAX_SIZE = 10 * 1024 * 1024;
+  var MAX_IMAGES = 12;
+  var ALLOWED_TYPES = ['image/jpeg','image/png','image/webp'];
+  var currentCaptureMode = 'single_question';
+  var pendingObjectUrls = [];
+
+  function $(id){return document.getElementById(id)}
+  function setStatus(msg, type){
+    var el = $('correctStatus');
+    el.textContent = msg;
+    el.style.color = type === 'error' ? 'var(--err)' : (type === 'ok' ? 'var(--ok)' : 'var(--text2)');
+  }
+  function showLoading(text){
+    $('loadingText').textContent = text || '正在处理...';
+    $('loadingBox').style.display = 'flex';
+  }
+  function hideLoading(){ $('loadingBox').style.display = 'none'; }
+  function revokePendingUrls(){
+    pendingObjectUrls.forEach(function(u){try{URL.revokeObjectURL(u)}catch(e){}});
+    pendingObjectUrls = [];
+  }
+
+  function init(){
+    var dz = $('correctDropZone');
+    var input = $('correctFileInput');
+    dz.addEventListener('click', function(){ input.click(); });
+    dz.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}});
+    input.addEventListener('change', function(){ if(input.files && input.files.length) uploadFiles(input.files); });
+    dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', function(){ dz.classList.remove('dragover'); });
+    dz.addEventListener('drop', function(e){
+      e.preventDefault(); dz.classList.remove('dragover');
+      var files = e.dataTransfer.files;
+      if(files && files.length) uploadFiles(files);
+    });
+    $('captureSelector').addEventListener('change', changeCaptureMode);
+    $('openPaperBtn').addEventListener('click', openPaperCorrection);
+    loadPapers();
+    var requestedMode=new URLSearchParams(location.search).get('mode');
+    var requestedInput=document.querySelector('input[name="captureMode"][value="'+requestedMode+'"]');
+    if(requestedInput){requestedInput.checked=true;changeCaptureMode()}
+  }
+
+  function selectedCaptureMode(){var checked=document.querySelector('input[name="captureMode"]:checked');return checked?checked.value:'single_question'}
+  function changeCaptureMode(){
+    var nextMode=selectedCaptureMode();
+    if(uploading||correcting){
+      var previous=document.querySelector('input[name="captureMode"][value="'+currentCaptureMode+'"]');if(previous)previous.checked=true;
+      setStatus('当前任务完成后再切换检查范围','info');return;
+    }
+    currentCaptureMode=nextMode;resetAll(false);
+    var whole=currentCaptureMode==='whole_paper';
+    $('wholePaperPanel').style.display=whole?'block':'none';
+    $('correctDropZone').closest('.card').style.display=whole?'none':'block';
+    $('uploadTitle').textContent=currentCaptureMode==='single_page'?'上传单页作答图片':'上传单题作答图片';
+    $('correctCaptureHint').textContent=currentCaptureMode==='single_page'?'可上传页面全图或多张局部补充图，识别后逐题检查；单张最大 10MB':'可选择多张图片，系统会把它们作为同一道题识别；单张最大 10MB';
+  }
+  function loadPapers(){
+    window.$API.get('/api/papers?limit=200').then(function(items){
+      var sel=$('paperSelect');sel.innerHTML='<option value="">请选择试卷</option>';
+      (items||[]).forEach(function(p){var o=document.createElement('option');o.value=p.id;o.textContent=(p.title||'未命名试卷')+'（'+((p.question_ids||[]).length)+'题）';sel.appendChild(o)});
+    }).catch(function(){$('paperSelect').innerHTML='<option value="">试卷列表加载失败（点击重试）</option>';$('paperSelect').onfocus=loadPapers});
+  }
+  function openPaperCorrection(){var id=$('paperSelect').value;if(!id){setStatus('请先选择试卷','error');return}location.href='/papers/'+encodeURIComponent(id)+'/correct'}
+
+  function uploadFiles(fileList){
+    if(uploading || correcting) return;
+    var files=Array.prototype.slice.call(fileList||[]);
+    if(!files.length){setStatus('请至少选择一张图片','error');return}
+    if(files.length>MAX_IMAGES){setStatus('一次最多上传 '+MAX_IMAGES+' 张图片','error');return}
+    var invalid=files.find(function(file){return ALLOWED_TYPES.indexOf(file.type)<0||!file.size||file.size>MAX_SIZE});
+    if(invalid){setStatus('文件 '+invalid.name+' 不是有效图片、为空或超过 10MB','error');return}
+    uploading = true;
+    stopPolling();
+    currentCaptureMode=selectedCaptureMode();
+    revokePendingUrls();
+    var previewBox=$('correctPreviews');previewBox.innerHTML='';previewBox.style.display='grid';
+    files.forEach(function(file){
+      var img=document.createElement('img');
+      img.className='upload-preview';img.alt=file.name;
+      var url=URL.createObjectURL(file);
+      pendingObjectUrls.push(url);
+      img.src=url;
+      previewBox.appendChild(img);
+    });
+
+    var form = new FormData();
+    files.forEach(function(file){form.append('files',file)});
+    form.append('capture_mode',currentCaptureMode);
+    setStatus('正在上传...', 'info');
+    showLoading('正在上传图片...');
+    $('ocrCard').style.display = 'none';
+    $('matchedCard').style.display = 'none';
+    $('reportCard').style.display = 'none';
+    $('pageReportCard').style.display = 'none';
+    window.$API.upload('/api/correction/upload', form).then(function(r){
+      currentQueryId = r.question_id;
+      setStatus('已上传 '+r.image_count+' 张图片，正在识别作答内容...', 'info');
+      showLoading('正在识别作答内容...');
+      startPolling();
+    }).catch(function(e){
+      setStatus('上传失败：' + (e.message || '未知错误'), 'error');
+      hideLoading();
+    }).finally(function(){
+      uploading = false;
+    });
+  }
+
+  function startPolling(){
+    if(pollTimer) clearInterval(pollTimer);
+    pollErrorCount = 0;
+    pollStartedAt = Date.now();
+    pollTimer = setInterval(pollStatus, 1500);
+    pollStatus();
+  }
+
+  function stopPolling(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function pollStatus(){
+    if(!currentQueryId) return;
+    if(pollStartedAt && Date.now()-pollStartedAt>180000){
+      stopPolling();hideLoading();setStatus('识别超过 3 分钟，请重新上传更清晰的图片。','error');return;
+    }
+    window.$API.get('/api/correction/status/' + encodeURIComponent(currentQueryId)).then(function(r){
+      if(r.status === 'search_done'){
+        stopPolling();
+        showOcrResult(r);
+        if(currentCaptureMode==='single_page')runPageCorrect(r.split_question_ids||[currentQueryId]);else runCorrect();
+      } else if(r.status === 'error'){
+        stopPolling();
+        hideLoading();
+        setStatus('识别失败：' + (r.error_message || 'OCR 识别失败'), 'error');
+      } else {
+        setStatus('识别中...', 'info');
+      }
+    }).catch(function(e){
+      pollErrorCount += 1;
+      if(pollErrorCount >= 5){
+        stopPolling();
+        hideLoading();
+        setStatus('状态查询多次失败，已停止轮询：' + e.message, 'error');
+      }
+    });
+  }
+
+  function showOcrResult(r){
+    $('ocrCard').style.display = 'block';
+    var ocrBox = $('ocrTextBox');
+    ocrBox.textContent = r.ocr_text || '（未识别到文字）';
+    if(window._renderMathInElement){
+      setTimeout(function(){ _renderMathInElement(ocrBox); }, 30);
+    }
+    setStatus('识别完成，正在批改...', 'info');
+    showLoading('正在批改作答...');
+  }
+
+  function runCorrect(){
+    if(!currentQueryId || correcting) return;
+    correcting = true;
+    window.$API.post('/api/correction/single/' + currentQueryId, {}).then(function(r){
+      setStatus('批改完成', 'ok');
+      renderReport(r);
+    }).catch(function(e){
+      setStatus('批改失败：' + e.message, 'error');
+    }).finally(function(){
+      correcting = false;
+      hideLoading();
+    });
+  }
+
+  function runPageCorrect(questionIds){
+    if(correcting)return;correcting=true;showLoading('正在逐题检查本页作答...');
+    window.$API.post('/api/correction/batch',{question_ids:questionIds}).then(function(r){
+      setStatus('单页检查完成','ok');renderPageReport(r);
+    }).catch(function(e){setStatus('单页检查失败：'+e.message,'error')}).finally(function(){correcting=false;hideLoading()});
+  }
+
+  function renderPageReport(r){
+    var card=$('pageReportCard'),box=$('pageReportResults');
+    $('pageReportSummary').textContent='识别 '+r.question_count+' 题，完成 '+r.completed_count+' 题，失败 '+r.failed_count+' 题；总得分 '+r.total_score+' / '+r.max_score;
+    box.innerHTML='';
+    (r.results||[]).forEach(function(item,index){
+      var el=document.createElement('div');
+      el.className='page-result '+(item.error?'error':'ok');
+      var score=item.error?'检查失败':((item.score||0)+' / '+(item.max_score||0));
+      var body = $esc(item.error||item.feedback||'已完成检查');
+      var matchedBtn = item.matched_question_id
+        ? '<div class="correct-actions"><a class="btn btn-sm" href="/questions?qid='+encodeURIComponent(item.matched_question_id)+'">查看原题</a></div>'
+        : '';
+      el.innerHTML='<div class="page-result-head"><span>第 '+$esc(String(item.number||index+1))+' 题</span><span>'+$esc(score)+'</span></div><div class="page-result-body">'+body+'</div>'+matchedBtn;
+      box.appendChild(el);
+    });
+    card.style.display='block';
+  }
+
+  function renderReport(r){
+    $('reportCard').style.display = 'block';
+    lastReport = r;
+
+    var score = r.score || 0;
+    var max = r.max_score || 0;
+    var pct = max > 0 ? Math.round(score / max * 100) : 0;
+    $('scoreRing').style.setProperty('--pct', pct);
+    $('scoreNum').textContent = score;
+    $('maxScore').textContent = max;
+
+    // 三栏统计卡
+    var points = r.points || [];
+    var hitCount = points.filter(function(p){ return p.max_score > 0 && p.score >= p.max_score; }).length;
+    var partialCount = points.filter(function(p){ return p.score > 0 && !(p.max_score > 0 && p.score >= p.max_score); }).length;
+    var missCount = points.length - hitCount - partialCount;
+    var metaBits = [];
+    if(r.subject) metaBits.push($esc(r.subject));
+    if(r.grade) metaBits.push($esc(r.grade));
+    var metaText = metaBits.join(' · ') || '-';
+    var timeStr = r.created_at ? $fmt(r.created_at) : $fmt(new Date().toISOString());
+    var statGrid = $('statGrid');
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-num">' + hitCount + ' / ' + points.length + '</div><div class="stat-label">命中得分点</div><div class="stat-sub">部分 ' + partialCount + ' · 未得 ' + missCount + '</div></div>' +
+      '<div class="stat-card"><div class="stat-num" style="font-size:14px">' + metaText + '</div><div class="stat-label">匹配题目</div><div class="stat-sub">' + (r.matched_question_id ? '已匹配' : '未匹配') + '</div></div>' +
+      '<div class="stat-card"><div class="stat-num" style="font-size:14px">' + timeStr + '</div><div class="stat-label">批改时间</div></div>';
+
+    // 匹配原题卡片
+    var matchedInfo = $('matchedInfo');
+    matchedInfo.innerHTML = '<div><b>学科 / 年级：</b>' + metaText + '</div>' +
+      '<div><b>匹配题目：</b>' + (r.matched_question_id ? '<a href="/questions?qid=' + encodeURIComponent(r.matched_question_id) + '" target="_blank">查看原题</a>' : '-') + '</div>';
+    var matchedPreview = $('matchedPreview');
+    matchedPreview.textContent = r.question_preview || '（无预览）';
+    $('matchedCard').style.display = 'block';
+
+    // 得分点明细
+    var pointsBox = $('pointsBox');
+    pointsBox.innerHTML = '';
+    if(!points.length){
+      pointsBox.innerHTML = '<div class="report-empty">无得分点明细</div>';
+    } else {
+      points.forEach(function(p, idx){
+        var el = document.createElement('div');
+        var cls = 'point-card';
+        var statusText = '未得';
+        if(p.score >= p.max_score && p.max_score > 0){ cls += ' hit'; statusText = '命中'; }
+        else if(p.score > 0){ cls += ' partial'; statusText = '部分'; }
+        else { cls += ' miss'; }
+        el.className = cls;
+        el.innerHTML = '<div class="point-title">' + (idx + 1) + '. ' + $esc(p.title || '') + ' <span class="point-status">[' + statusText + ']</span></div>' +
+          '<div class="point-score">得分：' + (p.score || 0) + ' / ' + (p.max_score || 0) + '</div>' +
+          '<div class="point-comment">' + $esc(p.comment || '') + '</div>';
+        pointsBox.appendChild(el);
+      });
+    }
+
+    $('feedbackBox').textContent = r.feedback || '（无）';
+    $('errorBox').textContent = r.error_analysis || '（无）';
+    $('suggestBox').textContent = r.suggestions || '（无）';
+
+    // 折叠：匹配题目预览 + 学生答案原文
+    var collapseWrap = $('collapseWrap');
+    collapseWrap.innerHTML =
+      '<details class="collapse-box"><summary>匹配题目预览</summary><div class="collapse-body" id="collapsePreview"></div></details>' +
+      '<details class="collapse-box"><summary>学生答案原文</summary><div class="collapse-body" id="collapseAnswer"></div></details>';
+    $('collapsePreview').textContent = r.question_preview || '（无预览）';
+    $('collapseAnswer').textContent = r.student_answer || '（未识别到学生作答）';
+
+    // 操作按钮
+    var actionBar = $('actionBar');
+    actionBar.innerHTML = '';
+    var btnRetry = document.createElement('button');
+    btnRetry.className = 'btn'; btnRetry.textContent = '重新批改';
+    btnRetry.addEventListener('click', function(){ resetAll(); });
+    actionBar.appendChild(btnRetry);
+
+    if(r.matched_question_id){
+      var btnSave = document.createElement('button');
+      btnSave.className = 'btn btn-primary'; btnSave.textContent = '另存为错题';
+      btnSave.addEventListener('click', function(){ saveAsNote(r, btnSave); });
+      actionBar.appendChild(btnSave);
+    }
+
+    var btnBack = document.createElement('a');
+    btnBack.className = 'btn'; btnBack.textContent = '返回批改中心'; btnBack.href = '/correctCenter';
+    actionBar.appendChild(btnBack);
+
+    if(window._renderMathInElement){
+      setTimeout(function(){
+        _renderMathInElement($('reportCard'));
+      }, 50);
+    }
+  }
+
+  function saveAsNote(r, btn){
+    if(savingNote) return;
+    savingNote = true;
+    if(btn) $busy(btn, true, '保存中...');
+    var title = '错题：' + ((r.question_preview || '单题批改').slice(0, 40));
+    var content = '【批改得分】' + (r.score || 0) + ' / ' + (r.max_score || 0) + '\n\n【错因分析】\n' + (r.error_analysis || '（无）') + '\n\n【改进建议】\n' + (r.suggestions || '（无）') + '\n\n【学生答案】\n' + (r.student_answer || '（无）');
+    var payload = {
+      title: title,
+      content: content,
+      knowledge_tags: [],
+      subject: r.subject || '',
+      grade: r.grade || '',
+      question_ids: r.matched_question_id ? [r.matched_question_id] : []
+    };
+    setStatus('正在保存为错题...', 'info');
+    window.$API.post('/api/notes', payload).then(function(){
+      setStatus('已保存为错题笔记', 'ok');
+      $toast('已保存为错题笔记', 'ok');
+    }).catch(function(e){
+      setStatus('保存失败：' + (e.message || '未知错误'), 'error');
+      $toast('保存失败：' + (e.message || '未知错误'), 'error');
+    }).finally(function(){
+      savingNote = false;
+      if(btn) $busy(btn, false);
+    });
+  }
+
+  function resetAll(resetMode){
+    currentQueryId = null;
+    stopPolling();
+    correcting = false;
+    uploading = false;
+    hideLoading();
+    revokePendingUrls();
+    $('correctPreviews').style.display = 'none';
+    $('correctPreviews').innerHTML = '';
+    $('correctFileInput').value = '';
+    $('ocrCard').style.display = 'none';
+    $('matchedCard').style.display = 'none';
+    $('reportCard').style.display = 'none';
+    $('pageReportCard').style.display = 'none';
+    setStatus('', 'info');
+  }
+
+  window._correctReset = resetAll;
+  window.addEventListener('beforeunload', stopPolling);
+
+  document.addEventListener('DOMContentLoaded', function(){ init(); });
+})();
+</script>
+{% endblock %}

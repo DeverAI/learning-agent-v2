@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <!-- 三角形 ABC -->
+  <polygon points="200,40 50,250 350,250" fill="none" stroke="#222" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- 高 AD（虚线） -->
+  <line x1="200" y1="40" x2="200" y2="250" stroke="#666" stroke-width="2" stroke-dasharray="6,4"/>
+
+  <!-- 直角标记（位于点D） -->
+  <path d="M 190 250 L 190 240 L 200 240" fill="none" stroke="#222" stroke-width="2"/>
+
+  <!-- 顶点标签 -->
+  <text x="200" y="30" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#111">A</text>
+  <text x="40" y="270" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#111">B</text>
+  <text x="360" y="270" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#111">C</text>
+  <text x="200" y="280" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#111">D</text>
+</svg>

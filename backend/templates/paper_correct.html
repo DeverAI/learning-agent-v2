@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div>
+    <a href="/papers/{{ paper_id }}" class="btn btn-sm" style="margin-bottom:6px">返回试卷</a>
+    <h1 id="paperTitle">试卷批改</h1>
+  </div>
+  <a href="/correctCenter" class="btn btn-sm">返回批改中心</a>
+</div>
+
+<div class="card" id="paperInfoCard">
+  <div class="card-title">试卷信息</div>
+  <div class="row" id="paperInfoRow">
+    <div class="empty">加载中...</div>
+  </div>
+</div>
+
+<div class="card" id="uploadCard">
+  <div class="card-title">上传整份作答图片</div>
+  <div class="upload-zone" id="paperDropZone" role="button" tabindex="0" aria-label="选择整卷作答图片">
+    <input type="file" id="paperFileInput" accept="image/jpeg,image/png,image/webp" multiple>
+    <p>点击或拖拽上传整卷作答图片</p>
+    <p class="hint">可按页码顺序上传多张 JPG / PNG / WEBP；单张最大 10MB，一次最多 12 张。</p>
+    <div id="paperPreviews" class="upload-previews" style="display:none"></div>
+  </div>
+  <div class="upload-status" id="paperStatus"></div>
+  <div class="correct-loading" id="loadingBox" style="display:none">
+    <span class="spin"></span>
+    <span class="load-text" id="loadingText">正在批改...</span>
+  </div>
+</div>
+
+<div class="card" id="summaryCard" style="display:none">
+  <div class="card-title">成绩总览</div>
+  <div class="overview-wrap">
+    <div>
+      <div class="score-ring" id="sumRing" style="--pct:0">
+        <div class="score-ring-inner">
+          <div class="score-ring-num" id="sumScore">0</div>
+          <div class="score-ring-label">总得分</div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:var(--fs-sm);color:var(--text2)">满分 <span id="sumMax">0</span> · 得分率 <span id="sumRate">0%</span></div>
+    </div>
+    <div class="overview-side">
+      <div id="gradeWrap"></div>
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <div class="progress-label">批改进度：<span id="progressText">0 / 0</span></div>
+      </div>
+      <div class="stat-grid" style="margin-top:10px">
+        <div class="stat-card"><div class="stat-num" id="sumCount">0</div><div class="stat-label">已批题目</div></div>
+        <div class="stat-card"><div class="stat-num" id="sumWrong">0</div><div class="stat-label">错题数</div></div>
+      </div>
+      <div class="paper-actions" id="paperActions"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="wrongCard" style="display:none">
+  <div class="card-title">错题汇总</div>
+  <div class="wrong-summary" id="wrongSummary"></div>
+</div>
+
+<div class="card" id="resultsCard" style="display:none">
+  <div class="card-title">逐题批改结果</div>
+  <div id="resultsBox"></div>
+</div>
+
+<script>
+(function(){
+  var paperId = '{{ paper_id }}';
+  var uploading = false;
+  var paperLoaded = false;
+  var MAX_SIZE = 10 * 1024 * 1024;
+  var MAX_IMAGES = 12;
+  var ALLOWED_TYPES = ['image/jpeg','image/png','image/webp'];
+  var pendingObjectUrls = [];
+
+  function init(){
+    loadPaperInfo();
+    var dz = document.getElementById('paperDropZone');
+    var input = document.getElementById('paperFileInput');
+    dz.addEventListener('click', function(){ if(!uploading) input.click(); });
+    dz.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();if(!uploading)input.click()}});
+    input.addEventListener('change', function(){ if(input.files && input.files.length) uploadFiles(input.files); });
+    dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', function(){ dz.classList.remove('dragover'); });
+    dz.addEventListener('drop', function(e){
+      e.preventDefault(); dz.classList.remove('dragover');
+      var files = e.dataTransfer.files;
+      if(files && files.length) uploadFiles(files);
+    });
+  }
+
+  function revokePendingUrls(){
+    pendingObjectUrls.forEach(function(u){try{URL.revokeObjectURL(u)}catch(e){}});
+    pendingObjectUrls = [];
+  }
+
+  function setStatus(msg, type){
+    var el = document.getElementById('paperStatus');
+    el.textContent = msg;
+    el.style.color = type === 'error' ? 'var(--err)' : (type === 'ok' ? 'var(--ok)' : 'var(--text2)');
+  }
+
+  function showLoading(text){
+    var box = document.getElementById('loadingBox');
+    document.getElementById('loadingText').textContent = text || '正在处理...';
+    box.style.display = 'flex';
+  }
+  function hideLoading(){
+    document.getElementById('loadingBox').style.display = 'none';
+  }
+
+  function loadPaperInfo(){
+    $API.get('/api/papers/' + encodeURIComponent(paperId)).then(function(p){
+      paperLoaded = true;
+      var qCount = (p.question_order && p.question_order.length) ? p.question_order.length : (p.question_ids || []).length;
+      var row = document.getElementById('paperInfoRow');
+      var html = '<div><b>标题：</b>' + $esc(p.title || '-') + '</div>' +
+        '<div><b>学科：</b>' + $esc(p.subject || '-') + '</div>' +
+        '<div><b>年级：</b>' + $esc(p.grade || '-') + '</div>' +
+        '<div><b>题目数：</b>' + qCount + '</div>';
+      if(p.user_score !== null && p.user_score !== undefined){
+        html += '<div><b>已有成绩：</b>' + $esc(String(p.user_score)) + '</div>';
+      }
+      if(qCount === 0){
+        html += '<div class="alert" style="margin-top:8px">该试卷没有题目，无法批改</div>';
+        document.getElementById('paperDropZone').classList.add('disabled');
+      }
+      row.innerHTML = html;
+      document.getElementById('paperTitle').textContent = p.title || '试卷批改';
+    }).catch(function(){
+      paperLoaded = false;
+      document.getElementById('paperInfoRow').innerHTML = '<div class="empty">加载试卷信息失败</div>';
+      document.getElementById('paperDropZone').classList.add('disabled');
+    });
+  }
+
+  function uploadFiles(fileList){
+    if(uploading) return;
+    if(!paperLoaded){
+      setStatus('试卷信息未加载完成，请稍后再试', 'error'); return;
+    }
+    var files=Array.prototype.slice.call(fileList||[]);
+    if(!files.length){setStatus('请至少选择一张图片','error');return}
+    if(files.length>MAX_IMAGES){setStatus('一次最多上传 '+MAX_IMAGES+' 张图片','error');return}
+    var invalid=files.find(function(file){return ALLOWED_TYPES.indexOf(file.type)<0||!file.size||file.size>MAX_SIZE});
+    if(invalid){setStatus('文件 '+invalid.name+' 不是有效图片、为空或超过 10MB','error');return}
+    uploading = true;
+    revokePendingUrls();
+    var previewBox=document.getElementById('paperPreviews');previewBox.innerHTML='';previewBox.style.display='grid';
+    files.forEach(function(file){
+      var img=document.createElement('img');
+      img.className='upload-preview';img.alt=file.name;
+      var url=URL.createObjectURL(file);
+      pendingObjectUrls.push(url);
+      img.src=url;
+      previewBox.appendChild(img);
+    });
+
+    var form = new FormData();
+    files.forEach(function(file){form.append('files',file)});
+    setStatus('正在上传 '+files.length+' 页并批改，请耐心等待...', 'info');
+    showLoading('正在识别并批改整份试卷，可能需要较长时间...');
+    document.getElementById('summaryCard').style.display = 'none';
+    document.getElementById('wrongCard').style.display = 'none';
+    document.getElementById('resultsCard').style.display = 'none';
+
+    $API.upload('/api/correction/paper/' + encodeURIComponent(paperId), form).then(function(r){
+      hideLoading();
+      setStatus('批改完成', 'ok');
+      revokePendingUrls();
+      renderSummary(r);
+      renderResults(r);
+    }).catch(function(e){
+      hideLoading();
+      setStatus('批改失败：' + (e.message || '未知错误'), 'error');
+    }).finally(function(){
+      uploading = false;
+    });
+  }
+
+  function renderSummary(r){
+    var total = r.total_score || 0;
+    var max = r.max_score || 0;
+    var results = r.results || [];
+    var rate = max > 0 ? Math.round(total / max * 100) : 0;
+    var pct = max > 0 ? Math.round(total / max * 100) : 0;
+    document.getElementById('sumRing').style.setProperty('--pct', pct);
+    document.getElementById('sumScore').textContent = total;
+    document.getElementById('sumMax').textContent = max;
+    document.getElementById('sumRate').textContent = rate + '%';
+
+    var okCount = results.filter(function(x){ return !x.error; }).length;
+    var wrongCount = results.filter(function(x){ return !x.error && (x.max_score || 0) > 0 && (x.score || 0) < (x.max_score || 0); }).length;
+    document.getElementById('sumCount').textContent = okCount + ' / ' + results.length;
+    document.getElementById('sumWrong').textContent = wrongCount;
+
+    // 等级标识
+    var gradeWrap = document.getElementById('gradeWrap');
+    var grade = gradeOf(rate);
+    gradeWrap.innerHTML = '<span class="grade-badge ' + grade.cls + '">' + grade.label + '</span>' +
+      '<span style="font-size:var(--fs-xs);color:var(--text2);margin-left:8px">得分率 ' + rate + '%</span>';
+
+    // 进度条
+    var progressPct = results.length > 0 ? Math.round(okCount / results.length * 100) : 0;
+    document.getElementById('progressFill').style.width = progressPct + '%';
+    document.getElementById('progressText').textContent = okCount + ' / ' + results.length;
+
+    // 操作按钮
+    var actions = document.getElementById('paperActions');
+    actions.innerHTML = '';
+    var btnDownload = document.createElement('button');
+    btnDownload.className = 'btn btn-primary'; btnDownload.textContent = '下载报告';
+    btnDownload.addEventListener('click', function(){ downloadReport(r); });
+    actions.appendChild(btnDownload);
+    var aList = document.createElement('a');
+    aList.className = 'btn'; aList.textContent = '返回试卷列表'; aList.href = '/papers';
+    actions.appendChild(aList);
+    var aCenter = document.createElement('a');
+    aCenter.className = 'btn'; aCenter.textContent = '返回批改中心'; aCenter.href = '/correctCenter';
+    actions.appendChild(aCenter);
+
+    document.getElementById('summaryCard').style.display = 'block';
+
+    // 错题汇总
+    renderWrongSummary(results);
+  }
+
+  function gradeOf(rate){
+    if(rate >= 90) return {label: '优秀', cls: 'grade-excellent'};
+    if(rate >= 75) return {label: '良好', cls: 'grade-good'};
+    if(rate >= 60) return {label: '及格', cls: 'grade-pass'};
+    return {label: '不及格', cls: 'grade-fail'};
+  }
+
+  function renderWrongSummary(results){
+    var wrongs = results.filter(function(x){ return !x.error && (x.max_score || 0) > 0 && (x.score || 0) < (x.max_score || 0); });
+    var card = document.getElementById('wrongCard');
+    var box = document.getElementById('wrongSummary');
+    if(!wrongs.length){
+      card.style.display = 'none';
+      return;
+    }
+    var html = '<h3>共 ' + wrongs.length + ' 道错题</h3>';
+    wrongs.forEach(function(item){
+      var num = item.number || '?';
+      var anchor = 'qresult_' + (item.number || '');
+      html += '<div class="wrong-item">第 ' + $esc(String(num)) + ' 题：' +
+        (item.score || 0) + ' / ' + (item.max_score || 0) +
+        ' <a data-anchor="' + $esc(anchor) + '">跳转</a></div>';
+    });
+    box.innerHTML = html;
+    card.style.display = 'block';
+    box.querySelectorAll('a[data-anchor]').forEach(function(a){
+      a.addEventListener('click', function(){
+        var target = document.getElementById(a.getAttribute('data-anchor'));
+        if(target){
+          target.scrollIntoView({behavior: 'smooth', block: 'center'});
+          target.style.boxShadow = '0 0 0 3px var(--accent-soft)';
+          setTimeout(function(){ target.style.boxShadow = ''; }, 1500);
+        }
+      });
+    });
+  }
+
+  function renderResults(r){
+    var box = document.getElementById('resultsBox');
+    box.innerHTML = '';
+    var results = r.results || [];
+    if(!results.length){
+      box.innerHTML = '<div class="empty">无逐题结果</div>';
+    } else {
+      results.forEach(function(item, idx){
+        var el = document.createElement('div');
+        var isErr = !!item.error;
+        el.className = 'corr-result ' + (isErr ? 'err' : 'ok');
+        el.id = 'qresult_' + (item.number || '');
+        var num = item.number || (idx + 1);
+        var head = '<div class="corr-head"><span class="corr-title">第 ' + $esc(String(num)) + ' 题</span>';
+        if(isErr){
+          head += '<span class="status-tag err">批改失败</span></div>';
+        } else {
+          head += '<span class="status-tag ok">已批改</span>' +
+            '<span class="corr-score">' + (item.score || 0) + ' / ' + (item.max_score || 0) + '</span></div>';
+        }
+        var body = '';
+        if(isErr){
+          body = '<div class="corr-detail" style="color:var(--err)">失败原因：' + $esc(item.error || '') + '</div>';
+        } else {
+          body = '<div class="corr-detail">' + $esc(item.feedback || '') + '</div>';
+          var hasExtra = (item.error_analysis && item.error_analysis.trim()) || (item.suggestions && item.suggestions.trim()) || (item.points && item.points.length) || (item.student_answer && item.student_answer.trim());
+          if(hasExtra){
+            var extraId = 'qextra_' + idx;
+            body += '<div class="corr-expand" data-toggle="' + extraId + '">展开详情</div>';
+            body += '<div class="corr-extra" id="' + extraId + '">';
+            if(item.points && item.points.length){
+              body += '<div class="corr-points"><b>得分点：</b></div>';
+              item.points.forEach(function(p, pi){
+                var pcls = 'corr-point';
+                if(p.score >= p.max_score && p.max_score > 0) pcls += ' hit';
+                else if(p.score > 0) pcls += ' partial';
+                else pcls += ' miss';
+                body += '<div class="' + pcls + '">' + $esc((pi+1) + '. ' + (p.title||'')) + ' [' + (p.score||0) + '/' + (p.max_score||0) + ']</div>';
+              });
+            }
+            if(item.error_analysis && item.error_analysis.trim()){
+              body += '<div class="report-err"><b>错因分析：</b>' + $esc(item.error_analysis) + '</div>';
+            }
+            if(item.suggestions && item.suggestions.trim()){
+              body += '<div class="report-ok"><b>改进建议：</b>' + $esc(item.suggestions) + '</div>';
+            }
+            if(item.student_answer && item.student_answer.trim()){
+              body += '<div class="report-ok" style="background:var(--subtle);border-color:var(--border)"><b>学生答案片段：</b>' + $esc(item.student_answer.slice(0, 200)) + '</div>';
+            }
+            body += '</div>';
+          }
+          if(item.matched_question_id){
+            body += '<div class="corr-detail"><a href="/questions?qid=' + encodeURIComponent(item.matched_question_id) + '" target="_blank">查看原题</a></div>';
+          }
+        }
+        el.innerHTML = head + body;
+        box.appendChild(el);
+      });
+      // 绑定折叠
+      box.querySelectorAll('.corr-expand[data-toggle]').forEach(function(t){
+        t.addEventListener('click', function(){
+          var extra = document.getElementById(t.getAttribute('data-toggle'));
+          if(extra){
+            extra.classList.toggle('open');
+            t.textContent = extra.classList.contains('open') ? '收起详情' : '展开详情';
+          }
+        });
+      });
+    }
+    document.getElementById('resultsCard').style.display = 'block';
+
+    if(window._renderMathInElement){
+      setTimeout(function(){ _renderMathInElement(document.getElementById('resultsCard')); }, 50);
+    }
+  }
+
+  function downloadReport(r){
+    var total = r.total_score || 0;
+    var max = r.max_score || 0;
+    var rate = max > 0 ? Math.round(total / max * 100) : 0;
+    var grade = gradeOf(rate);
+    var themeStyle=getComputedStyle(document.documentElement);
+    function themeColor(name,fallback){
+      var value=(themeStyle.getPropertyValue(name)||'').trim();
+      return /^#[0-9a-f]{3,8}$/i.test(value)||/^rgba?\([\d\s.,%]+\)$/i.test(value)?value:fallback;
+    }
+    var reportAccent=themeColor('--accent','#000');
+    var reportAccentSoft=themeColor('--accent-soft','transparent');
+    var reportError=themeColor('--err','#000');
+    var rows = (r.results || []).map(function(item, idx){
+      var num = item.number || (idx + 1);
+      if(item.error){
+        return '<tr><td>' + num + '</td><td colspan="3" style="color:var(--print-error)">批改失败：' + $esc(item.error || '') + '</td></tr>';
+      }
+      var pointsTxt = (item.points || []).map(function(p, pi){ return (pi+1) + '. ' + (p.title||'') + ' [' + (p.score||0) + '/' + (p.max_score||0) + ']'; }).join('<br>');
+      return '<tr><td>' + num + '</td><td>' + (item.score||0) + '/' + (item.max_score||0) + '</td><td>' + $esc(item.feedback || '') + '</td><td>' + pointsTxt + '</td></tr>';
+    }).join('');
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>试卷批改报告</title>' +
+      '<style>:root{--print-text:#000;--print-border:#000;--print-subtle:#fff;--print-accent:'+reportAccent+';--print-accent-soft:'+reportAccentSoft+';--print-error:'+reportError+'}body{font-family:"Microsoft YaHei",sans-serif;max-width:780px;margin:24px auto;padding:0 16px;color:var(--print-text)}' +
+      'h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{border:1px solid var(--print-border);padding:8px;font-size:13px;text-align:left}th{background:var(--print-subtle)}.badge{display:inline-block;padding:4px 12px;border-radius:12px;background:var(--print-accent-soft);color:var(--print-accent);font-weight:700}</style></head><body>' +
+      '<h1>试卷批改报告</h1>' +
+      '<p>总分：' + total + ' / ' + max + '　得分率：' + rate + '%　<span class="badge">' + grade.label + '</span></p>' +
+      '<table><thead><tr><th>题号</th><th>得分</th><th>评语</th><th>得分点</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</body></html>';
+    var blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = '试卷批改报告_' + (r.paper_id || '') + '.html';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+
+  window.addEventListener('beforeunload', function(){
+    uploading = false;
+  });
+
+  document.addEventListener('DOMContentLoaded', function(){ init(); });
+})();
+</script>
+{% endblock %}

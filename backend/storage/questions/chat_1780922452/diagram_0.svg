@@ -1,0 +1,40 @@
+<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="black"/>
+    </marker>
+  </defs>
+
+  <!-- 白色背景，适合打印 -->
+  <rect width="400" height="300" fill="white"/>
+
+  <!-- 坐标系 -->
+  <line x1="30" y1="250" x2="370" y2="250" stroke="black" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="50" y1="270" x2="50" y2="30" stroke="black" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  
+  <text x="375" y="245" font-family="Arial, sans-serif" font-size="12" fill="black">x</text>
+  <text x="45" y="30" font-family="Arial, sans-serif" font-size="12" fill="black">y</text>
+  
+  <!-- 原点 -->
+  <circle cx="50" cy="250" r="3" fill="black"/>
+  <text x="35" y="265" font-family="Arial, sans-serif" font-size="12" fill="black">O (0,0)</text>
+
+  <!-- 标题与描述 -->
+  <text x="200" y="25" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="black" text-anchor="middle">二维矩形几何描述</text>
+  <text x="200" y="50" font-family="Arial, sans-serif" font-size="12" fill="black" text-anchor="middle">几何元素：由点 P₀ 到 P₃ 定义的矩形</text>
+  <text x="200" y="65" font-family="Arial, sans-serif" font-size="12" fill="black" text-anchor="middle">尺寸：宽度 (w) = x₁ - x₀，高度 (h) = y₀ - y₁</text>
+
+  <!-- 矩形形状 -->
+  <polygon points="100,200 250,200 250,100 100,100" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- 点标记与标签 -->
+  <!-- P0 -->
+  <circle cx="100" cy="200" r="3" fill="black"/>
+  <text x="70" y="215" font-family="Arial, sans-serif" font-size="12" fill="black">P₀ (x₀, y₀)</text>
+  
+  <!-- P1 -->
+  <circle cx="250" cy="200" r="3" fill="black"/>
+  <text x="255" y="215" font-family="Arial, sans-serif" font-size="12" fill="black">P₁ (x₁, y₀)</text>
+  
+  <!-- P2 -->
+  <circle cx="250" cy="100" r="3" fill="black"/>

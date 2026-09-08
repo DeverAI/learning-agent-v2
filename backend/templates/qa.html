@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <h1>Q&A</h1>
+</div>
+
+<div class="card">
+  <div class="qa-section">
+    <h3>1. 这个系统怎么用？</h3>
+    <p>首先在「API 设置」页面填入 DeepSeek 和 GLM 的 API Key（GLM 使用免费的 GLM-4V-Flash 做 OCR）。然后在「题目本」页面：<br><br>
+    <b>步骤 1</b>: 点击上传框选择一张或多张题目图片（支持多选和拖拽）<br>
+    <b>步骤 2</b>: 图片暂存在右侧列表中，此时尚未处理<br>
+    <b>步骤 3</b>: 填写解题思路提示（可选）、知识点标签（可选）、年级（可选），选择拆分模式<br>
+    <b>步骤 4</b>: 点击「开始处理」按钮，AI 才会开始工作<br><br>
+    处理完成后，你可以在题目列表中查看。积累一定题目后，进入「组卷中心」，选择组卷方式和筛选条件，AI 会自动从题库中挑选题目并排版成一份完整的试卷。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>2. AI 是怎么分工的？</h3>
+    <p><b>智谱AI GLM (主力)</b> 负责所有需要"看"的任务——上传题目的 OCR 文字识别、判断学科和年级、提取知识点标签、描述题目中的图表内容。使用免费 GLM-4V-Flash 模型。<br><br>
+    <b>Kimi (备用)</b> 当 GLM 识别失败时自动回退到 Kimi 进行 OCR 和视觉理解。<br><br>
+    <b>DeepSeek</b> 负责所有需要"想"的任务——数学推理、生成详细解答步骤、编写 SVG 示意图代码、试卷排版生成。DeepSeek 擅长逻辑推理和代码生成。<br><br>
+    <b>排版审核</b> 多模型协作：先由 DeepSeek 生成试卷 HTML，再由 GLM 进行视觉审核（如有图片渲染环境），最后 DeepSeek 根据意见修复。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>3. 数学示意图是怎么生成的？</h3>
+    <p>不是扩散模型（DALL-E/Midjourney）的"猜像素"。系统使用的是 <b>SVG 代码生成</b>：DeepSeek 通过数学计算确定坐标系、曲线上的关键点坐标、几何图形的顶点位置，然后写出精确的 SVG 代码来绘制图形。SVG 是矢量格式，可以无限缩放不模糊。</p>
+    <p>系统内置三套专用提示词分别处理函数图像、平面几何和统计图表。每张图生成后会自动验证结构完整性，最多重试 2 次。不满意的话，在题目详情页可以点「重新生成」。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>4. 组卷有哪些方式？</h3>
+    <p><b>自定义 Prompt</b> — 完全自由输入你的组卷要求，如"出5道二次函数题，由易到难"。<br>
+    <b>模拟卷</b> — 模拟真实考试，按考纲难度分布（基础30%、中档50%、难题20%），含答题卡。<br>
+    <b>压轴卷</b> — 高难度训练卷，侧重综合和创新，每题标注难度星级，含完整解题步骤。<br>
+    <b>专题卷</b> — 围绕特定知识点组卷，含概念理解、基础应用、综合提高三个层次。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>5. 上传时可以填什么？</h3>
+    <p>上传图片时可以填写<b>解题思路提示</b>（"这道题可能要用余弦定理"）、<b>知识点标签</b>（"二次函数,不等式"）和<b>年级</b>。这些是可选的——如果你知道这是什么题，填上能帮 AI 更准确；留空的话 AI 也会自动判断。主要是避免小学题被拿去用四点共圆、大学数学方法去解答。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>6. 试卷怎么导出？</h3>
+    <p><b>HTML</b>: 浏览器打开试卷页面，Ctrl+P 打印，选择 A3 或 A4 纸张，另存为 PDF。KaTeX 会自动渲染所有数学公式。<br>
+    <b>Word</b>: 直接下载 .docx 文件。公式在 Word 中会以 LaTeX 源码显示。<br>
+    试卷和答案可以分开下载。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>7. 数据存在哪里？</h3>
+    <p>所有数据存储在 <code>backend/storage/</code> 目录下。SQLite 数据库文件 (<code>app.db</code>) 存储题目和试卷的元数据。每道题的图片、SVG 示意图、HTML 文件都存在以题目 ID 命名的子文件夹中。API Key 保存在 <code>backend/settings.json</code>。整个 <code>storage/</code> 目录备份即可迁移全部数据。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>8. 手机能用吗？</h3>
+    <p>可以。页面已适配移动端：侧边栏在手机上会隐藏为汉堡菜单，表单字段自动换行，表格可以横向滚动。在手机上拍照上传、查看题目、组卷都可以正常使用。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>9. 服务器配置要求？</h3>
+    <p>2 核 2G 即可。系统只有一个 Python 进程 + SQLite 数据库，不依赖 Node.js、Redis、MySQL 等外部服务。依赖仅 13 个 Python 包。内存占用通常在 100-300MB 之间。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>10. Prompt 积木块怎么用？</h3>
+    <p>在「Prompt 管理」页面编辑模板时，下方有带颜色的变量块（如 <code>{grade}</code>、<code>{subject}</code>）。点击变量块，它会插入到编辑器中光标所在的位置。组卷时这些变量会被自动替换为实际值。你可以修改默认模板、新建自己的模板，也可以随时恢复默认内容。</p>
+  </div>
+
+  <div class="qa-section">
+    <h3>11. Agent 对话是怎么工作的？</h3>
+    <p>Agent 页面支持多轮对话，有上下文记忆。左侧栏显示所有历史对话，点击 + 创建新对话。<br><br>
+    AI 会自动判断你的意图：<b>闲聊</b>用 cheap 模型（快且便宜），<b>解题/推理</b>自动切换 v4-pro 模型，<b>组卷</b>需求会直接带你跳转组卷页面，遇到我还没有的能力也会自动记录到 AGENT_NEEDS.md 待开发。</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="qa-section">
+    <h3>知识检索</h3>
+    <p>先在本地知识库检索已存内容；本地未命中时可让 GLM 联网搜索补充（需在设置页配置 GLM API Key）。检索到的内容会自动存为知识库文档，可随时查看或删除。</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      <input type="text" id="kbSearchInput" placeholder="输入要查询的知识点..." style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--card-bg)">
+      <button class="btn btn-primary" id="kbSearchBtn" onclick="kbSearch(this)">检索</button>
+      <button class="btn btn-sm" onclick="kbList(this)">查看已存文档</button>
+    </div>
+    <div id="kbResult" style="margin-top:10px;font-size:13px"></div>
+  </div>
+</div>
+
+<script>
+window.kbSearch=function(btn){
+  var input=document.getElementById('kbSearchInput');
+  var q=(input.value||'').trim();
+  if(!q){$toast('请输入要检索的知识点','error');return}
+  btn=btn||document.getElementById('kbSearchBtn');
+  $busy(btn,true,'检索中...');
+  var res=document.getElementById('kbResult');
+  res.innerHTML='<span class="spin"></span> 检索中...';
+  window.$API.post('/api/knowledge/enrich?q='+encodeURIComponent(q.slice(0,2000)),{}).then(function(r){
+    if(!r||!r.found||!r.content){
+      res.innerHTML='<div class="status-warn" style="padding:6px 10px;border-radius:4px">没有找到相关内容，请换个说法或检查 GLM Key 配置。</div>';
+      return;
+    }
+    var box=document.createElement('div');
+    box.style.cssText='border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--subtle)';
+    $md(r.content,box);
+    res.innerHTML='';
+    res.appendChild(box);
+  }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">检索失败: '+$esc(e.message)+'</div>'}).finally(function(){$busy(btn,false)});
+};
+
+window.kbList=function(btn){
+  btn=btn||document.getElementById('kbSearchBtn');
+  var res=document.getElementById('kbResult');
+  res.innerHTML='<span class="spin"></span> 加载中...';
+  window.$API.get('/api/knowledge').then(function(r){
+    var docs=(r&&r.docs)||[];
+    if(!docs.length){res.innerHTML='<div class="status-warn" style="padding:6px 10px;border-radius:4px">知识库暂无已存文档。</div>';return}
+    var html='<div style="display:flex;flex-direction:column;gap:6px">';
+    docs.forEach(function(d){
+      // id 只放进 data-* 属性（HTML 转义由 $esc 完成），
+      // onclick 内通过 this.getAttribute 取值，避免把外部数据拼进 JS 字符串字面量
+      html+='<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--subtle);flex-wrap:wrap">'+
+        '<span style="flex:1;min-width:140px;font-weight:600">'+$esc(d.title||d.id)+'</span>'+
+        '<span style="font-size:11px;color:var(--text3)">'+$esc((d.keywords||[]).slice(0,5).join('、'))+'</span>'+
+        '<button class="btn btn-sm" data-id="'+$esc(d.id)+'" onclick="kbView(this.getAttribute(\'data-id\'))">查看</button>'+
+        '<button class="btn btn-sm btn-danger" data-id="'+$esc(d.id)+'" onclick="kbDelete(this.getAttribute(\'data-id\'))">删除</button>'+
+      '</div>';
+    });
+    html+='</div>';
+    res.innerHTML=html;
+  }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">加载失败: '+$esc(e.message)+'</div>'});
+};
+
+window.kbView=function(id){
+  var res=document.getElementById('kbResult');
+  res.innerHTML='<span class="spin"></span> 加载中...';
+  window.$API.get('/api/knowledge/'+encodeURIComponent(id)).then(function(d){
+    if(!d||!d.title){res.innerHTML='<div class="status-warn" style="padding:6px 10px;border-radius:4px">文档不存在。</div>';return}
+    var box=document.createElement('div');
+    box.style.cssText='border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--subtle)';
+    var head=document.createElement('div');
+    head.style.cssText='font-weight:600;margin-bottom:8px';
+    head.textContent=d.title||'';
+    box.appendChild(head);
+    var body=document.createElement('div');
+    $md(d.content||'',body);
+    box.appendChild(body);
+    res.innerHTML='';
+    res.appendChild(box);
+  }).catch(function(e){res.innerHTML='<div class="status-error" style="padding:6px 10px;border-radius:4px">加载失败: '+$esc(e.message)+'</div>'});
+};
+
+window.kbDelete=async function(id){
+  if(!await $confirm('删除该知识库文档？',{danger:true}))return;
+  window.$API.del('/api/knowledge/'+encodeURIComponent(id)).then(function(){
+    $toast('已删除','ok');
+    window.kbList();
+  }).catch(function(e){$toast('删除失败: '+e.message,'error')});
+};
+</script>
+{% endblock %}

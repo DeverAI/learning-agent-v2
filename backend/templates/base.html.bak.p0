@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>学习搭子</title>
+<link rel="stylesheet" href="/storage/vendor/katex/katex.min.css?v=1">
+<link rel="stylesheet" href="/static/css/theme.css">
+<link rel="stylesheet" href="/static/css/animations.css">
+<script>document.documentElement.classList.add('js');window.addEventListener('load',function(){if(!window.MotionFX)document.documentElement.classList.remove('js')})</script>
+<script>
+// 防 FOUC：sidebar 在 JS 启动前默认隐藏，CSS :not(.js-side-nav) 守卫；
+// 有 JS 时此 html 标签立即包含 js-side-nav，由 app.js 在 DOMContentLoaded 后按视宽打开侧栏。
+(function(){document.documentElement.classList.add('js-side-nav')})();
+</script>
+<script defer src="/static/js/motion.js"></script>
+<script defer src="/static/js/app.js"></script>
+<script src="/storage/vendor/marked.min.js?v=1"></script>
+<script defer src="/storage/vendor/katex/katex.min.js?v=1"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>(function(){var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')})()</script>
+<script>
+// 主题色动态注入（仅全局变量 — 初始化在 $API 之后）
+var ACCENT_PRESETS={
+  'steel':{light:'#2b5aed',dark:'#6d8bff',grad:'linear-gradient(135deg,#2b5aed 0%,#4a7bff 100%)',grad_dark:'linear-gradient(135deg,#4a6bff 0%,#6d8bff 100%)'},
+  'amber':{light:'#e6a200',dark:'#ffc107',grad:'linear-gradient(135deg,#e6a200 0%,#ffc107 100%)',grad_dark:'linear-gradient(135deg,#d4a000 0%,#ffc107 100%)'},
+  'jade':{light:'#16a34a',dark:'#66bb6a',grad:'linear-gradient(135deg,#16a34a 0%,#66bb6a 100%)',grad_dark:'linear-gradient(135deg,#2e7d32 0%,#66bb6a 100%)'},
+  'mint':{light:'#0097a7',dark:'#26c6da',grad:'linear-gradient(135deg,#0097a7 0%,#26c6da 100%)',grad_dark:'linear-gradient(135deg,#00838f 0%,#26c6da 100%)'},
+  'rose':{light:'#c62828',dark:'#ef5350',grad:'linear-gradient(135deg,#c62828 0%,#ef5350 100%)',grad_dark:'linear-gradient(135deg,#b71c1c 0%,#ef5350 100%)'},
+  'violet':{light:'#7b1fa2',dark:'#ab47bc',grad:'linear-gradient(135deg,#7b1fa2 0%,#ab47bc 100%)',grad_dark:'linear-gradient(135deg,#6a1b9a 0%,#ab47bc 100%)'},
+};
+function _isValidHex(h){return /^#[0-9a-fA-F]{6}$/.test(h)}
+function _hexToRgba(hex,a){var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return 'rgba('+r+','+g+','+b+','+a+')'}
+function _lighten(hex,amt){var r=Math.min(255,parseInt(hex.slice(1,3),16)+Math.round(255*amt));var g=Math.min(255,parseInt(hex.slice(3,5),16)+Math.round(255*amt));var b=Math.min(255,parseInt(hex.slice(5,7),16)+Math.round(255*amt));return '#'+r.toString(16).padStart(2,'0')+g.toString(16).padStart(2,'0')+b.toString(16).padStart(2,'0')}
+function _darken(hex,amt){var r=Math.max(0,parseInt(hex.slice(1,3),16)-Math.round(255*amt));var g=Math.max(0,parseInt(hex.slice(3,5),16)-Math.round(255*amt));var b=Math.max(0,parseInt(hex.slice(5,7),16)-Math.round(255*amt));return '#'+r.toString(16).padStart(2,'0')+g.toString(16).padStart(2,'0')+b.toString(16).padStart(2,'0')}
+function _relLum(hex){var r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;function lin(c){return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4)}return .2126*lin(r)+.7152*lin(g)+.0722*lin(b)}
+function _onAccentFor(hex){return _relLum(hex)>.42?'#141518':'#ffffff'}
+function applyAccentColor(name,customLight,customDark){
+  var root=document.documentElement;
+  var preset=ACCENT_PRESETS[name];
+  if(name==='custom'){
+    var l=customLight||'#2b5aed';
+    var d=customDark||_darken(l,.10);
+    if(!_isValidHex(l)||(!_isValidHex(d)&&customDark)){$toast('HEX格式应为 #RRGGBB','error');return}
+    if(!_isValidHex(d)){d=_darken(l,.10)}
+    var gradL='linear-gradient(135deg,'+l+' 0%,'+_lighten(l,.15)+' 100%)';
+    var gradD='linear-gradient(135deg,'+_darken(d,.10)+' 0%,'+d+' 100%)';
+    var isDark=root.getAttribute('data-theme')==='dark';
+    var active=isDark?d:l;
+    root.style.setProperty('--accent',active);
+    root.style.setProperty('--accent-soft',_hexToRgba(active,.12));
+    root.style.setProperty('--accent-glow',_hexToRgba(active,.25));
+    root.style.setProperty('--grad-accent',isDark?gradD:gradL);
+    root.style.setProperty('--on-accent',_onAccentFor(active));
+  }else if(preset){
+    var isDark=root.getAttribute('data-theme')==='dark';
+    var active=isDark?preset.dark:preset.light;
+    root.style.setProperty('--accent',active);
+    root.style.setProperty('--accent-soft',_hexToRgba(active,.12));
+    root.style.setProperty('--accent-glow',_hexToRgba(active,.25));
+    root.style.setProperty('--grad-accent',isDark?preset.grad_dark:preset.grad);
+    root.style.setProperty('--on-accent',_onAccentFor(active));
+  }else{
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--accent-soft');
+    root.style.removeProperty('--accent-glow');
+    root.style.removeProperty('--grad-accent');
+    root.style.removeProperty('--on-accent');
+  }
+  localStorage.setItem('accent_color',name||'');
+  localStorage.setItem('accent_custom_light',customLight||'');
+  localStorage.setItem('accent_custom_dark',customDark||'');
+}
+// 立即从 localStorage 应用（无需 API）
+(function(){var n=localStorage.getItem('accent_color')||'';if(n){applyAccentColor(n,localStorage.getItem('accent_custom_light')||'',localStorage.getItem('accent_custom_dark')||'')}})();
+// 主题切换时重新应用主题色
+window.addEventListener('themeChanged',function(){var n=localStorage.getItem('accent_color')||'';if(n){applyAccentColor(n,localStorage.getItem('accent_custom_light')||'',localStorage.getItem('accent_custom_dark')||'')}});
+</script>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Desktop Sidebar -->
+  <div class="sidebar" id="sideBar">
+    <div class="sidebar-logo">
+      <span>学习搭子</span>
+      <button class="sidebar-close" id="sidebarClose" onclick="toggleSidebar()" title="关闭菜单" aria-label="关闭菜单">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/" class="{{ 'active' if page == 'dashboard' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M14 21.0001V15.0001H10V21.0001M19 9.77818V16.2001C19 17.8802 19 18.7203 18.673 19.362C18.3854 19.9265 17.9265 20.3855 17.362 20.6731C16.7202 21.0001 15.8802 21.0001 14.2 21.0001H9.8C8.11984 21.0001 7.27976 21.0001 6.63803 20.6731C6.07354 20.3855 5.6146 19.9265 5.32698 19.362C5 18.7203 5 17.8802 5 16.2001V9.77753M21 12.0001L15.5668 5.96405C14.3311 4.59129 13.7133 3.9049 12.9856 3.65151C12.3466 3.42894 11.651 3.42899 11.0119 3.65165C10.2843 3.90516 9.66661 4.59163 8.43114 5.96458L3 12.0001"/></svg>首页</a>
+      <a href="/banks" class="{{ 'active' if page == 'banks' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M8 7.00003H4M8 12H4M8 17H4M12 3V21M9.2 21H16.8C17.9201 21 18.4802 21 18.908 20.782C19.2843 20.5903 19.5903 20.2843 19.782 19.908C20 19.4802 20 18.9201 20 17.8V6.20003C20 5.07993 20 4.51987 19.782 4.09205C19.5903 3.71573 19.2843 3.40977 18.908 3.21802C18.4802 3.00003 17.9201 3.00003 16.8 3.00003H9.2C8.07989 3.00003 7.51984 3.00003 7.09202 3.21802C6.71569 3.40977 6.40973 3.71573 6.21799 4.09205C6 4.51987 6 5.07993 6 6.20003V17.8C6 18.9201 6 19.4802 6.21799 19.908C6.40973 20.2843 6.71569 20.5903 7.09202 20.782C6.51984 21 7.07989 21 8.2 21Z"/></svg>题库</a>
+      {% if enable_search %}
+      <a href="/search" class="{{ 'active' if page == 'search' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><circle cx="11" cy="11" r="8"/><path d="M21 21L16.65 16.65"/></svg>搜题</a>
+      {% endif %}
+      {% if enable_correct %}
+      <a href="/correctCenter" class="{{ 'active' if page == 'correct' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>批改中心</a>
+      {% endif %}
+
+      <div class="menu-group" onclick="toggleMenu('paperMenu')">
+        <span class="menu-arrow {{ 'open' if page in ('papers','generate','batch') else '' }}" id="arrow_paperMenu">&triangleright;</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><path d="M9 8H15M9 12H15M9 16H12M8.2 21H15.8C16.9201 21 17.4802 21 17.908 20.782C18.2843 20.5903 18.5903 20.2843 18.782 19.908C19 19.4802 19 18.9201 19 17.8V6.2C19 5.0799 19 4.51984 18.782 4.09202C18.5903 3.71569 18.2843 3.40973 17.908 3.21799C17.4802 3 16.9201 3 15.8 3H8.2C7.0799 3 6.51984 3 6.09202 3.21799C5.71569 3.40973 5.40973 3.71569 5.21799 4.09202C5 4.51984 5 5.07989 5 6.2V17.8C5 18.9201 5 19.4802 5.21799 19.908C5.40973 20.2843 5.71569 20.5903 6.09202 20.782C6.51984 21 7.07989 21 8.2 21Z"/></svg>试卷管理
+      </div>
+      <div class="menu-sub {{ 'open' if page in ('papers','generate','batch') else '' }}" id="paperMenu">
+        <a href="/papers" class="{{ 'active' if page == 'papers' else '' }}">试卷列表</a>
+        <a href="/papers/generate" class="{{ 'active' if page == 'generate' else '' }}">组卷中心</a>
+        <a href="/batch-upload" class="{{ 'active' if page == 'batch' else '' }}">整卷上传</a>
+      </div>
+
+      <a href="/editor" class="{{ 'active' if page == 'editor' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M12.0002 12V14C13.1048 14 14.0002 13.1045 14.0002 12H12.0002ZM12.0002 12H10.0002C10.0002 13.1045 10.8956 14 12.0002 14V12ZM12.0002 12V9.99995C10.8956 9.99995 10.0002 10.8954 10.0002 12H12.0002ZM12.0002 12H14.0002C14.0002 10.8954 13.1048 9.99995 12.0002 9.99995V12ZM12.0002 13H12.0102V11H12.0002V13ZM14.8286 14.8284C12.7579 16.8991 10.5345 18.3566 8.64907 19.0636C6.67076 19.8055 5.45764 19.5995 4.92913 19.071L3.51492 20.4852C4.93902 21.9093 7.23488 21.7299 9.35132 20.9363C11.5606 20.1078 14.0178 18.4677 16.2428 16.2426L14.8286 14.8284ZM4.92913 19.071C4.40061 18.5425 4.19466 17.3294 4.93653 15.3511C5.64358 13.4656 7.10106 11.2422 9.17177 9.17152L7.75756 7.75731C5.5325 9.98237 3.89235 12.4395 3.06387 14.6488C2.2702 16.7653 2.09081 19.0611 3.51492 20.4852L4.92913 19.071ZM9.17177 9.17152C11.2425 7.10082 13.4658 5.64333 15.3513 4.93628C17.3296 4.19441 18.5427 4.40037 19.0713 4.92888L20.4855 3.51467C19.0614 2.09056 16.7655 2.26996 14.6491 3.06362C12.4398 3.8921 9.98262 5.53225 7.75756 7.75731L9.17177 9.17152ZM19.0713 4.92888C19.5998 5.4574 19.8057 6.67051 19.0639 8.64883C18.3568 10.5343 16.8993 12.7577 14.8286 14.8284L16.2428 16.2426C18.4679 14.0175 20.108 11.5604 20.9365 9.35108C21.7302 7.23464 21.9096 4.93878 20.4855 3.51467L19.0713 4.92888ZM14.8286 9.17152C16.8993 11.2422 18.3568 13.4656 19.0639 15.3511C19.8057 17.3294 19.5998 18.5425 19.0713 19.071L20.4855 20.4852C21.9096 19.0611 21.7302 16.7653 20.9365 14.6488C20.108 12.4395 18.4679 9.98237 16.2428 7.75731L14.8286 9.17152ZM19.0713 19.071C18.5427 19.5995 17.3296 19.8055 15.3513 19.0636C13.4658 18.3566 11.2425 16.8991 9.17177 14.8284L7.75756 16.2426C9.98262 18.4677 12.4398 20.1078 14.6491 20.9363C16.7655 21.7299 19.0614 21.9093 20.4855 20.4852L19.0713 19.071ZM9.17177 14.8284C7.10106 12.7577 5.64358 10.5343 4.93653 8.64883C4.19466 6.67051 4.40061 5.4574 4.92913 4.92888L3.51491 3.51467C2.09081 4.93878 2.2702 7.23464 3.06387 9.35108C3.89235 11.5604 5.5325 14.0175 7.75756 16.2426L9.17177 14.8284ZM4.92913 4.92888C5.45764 4.40037 6.67076 4.19441 8.64907 4.93628C10.5345 5.64333 12.7579 7.10082 14.8286 9.17152L16.2428 7.75731C14.0178 5.53225 11.5606 3.8921 9.35132 3.06362C7.23488 2.26996 4.93902 2.09056 3.51491 3.51467L4.92913 4.92888Z"/></svg>实验图编辑器</a>
+      <a href="/agent" class="{{ 'active' if page == 'agent' else '' }}"><svg width="16" height="16" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M26,27H12A11,11,0,0,1,12,5H26A11,11,0,0,1,37,16"/><path d="M26,23H12A7,7,0,0,1,12,9H26a7,7,0,0,1,7,7"/><ellipse cx="27.20455" cy="15.22653" rx="1.29545" ry="1.61932" fill="currentColor"/><ellipse cx="10.79545" cy="15.22653" rx="1.29545" ry="1.61932" fill="currentColor"/><path d="M14.68182,16.17885a5.49719,5.49719,0,0,0,8.63636,0"/><circle cx="37.99999" cy="26.87923" r="8.99897"/><line x1="33.33333" x2="30" y1="34.66667" y2="40.66667"/><line x1="19" x2="19" y1="1" y2="5"/><path d="M6,40H27.302a3.63357,3.63357,0,0,1,3.69309,3.31178A3.50017,3.50017,0,0,1,27.5,47H6a5,5,0,0,1-5-5V32a5,5,0,0,1,5-5H16"/><rect x="8" y="31" width="8" height="4"/><line x1="24" x2="24" y1="40" y2="47"/></svg>Agent</a>
+      <a href="/notes" class="{{ 'active' if page == 'notes' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M12 22C12.5523 22 13 21.5523 13 21C13 20.4477 12.5523 20 12 20V22ZM12.4453 4.01216C12.9968 4.04235 13.4683 3.61979 13.4985 3.06833C13.5287 2.51687 13.1061 2.04535 12.5547 2.01515L12.4453 4.01216ZM11.7627 9.23726L11.0556 8.53015L11.7627 9.23726ZM17.411 3.58902L18.1181 4.29613L17.411 3.58902ZM9 15L8.01005 14.8586C7.96411 15.1802 8.07723 15.504 8.3134 15.727C8.54957 15.9501 8.87936 16.0445 9.19778 15.9802L9 15ZM9.04745 14.6678L8.0575 14.5264L8.0575 14.5264L9.04745 14.6678ZM9.48793 14.9016L9.29015 13.9213L9.48793 14.9016ZM12.8012 13.7247L12.2287 12.9048H12.2287L12.8012 13.7247ZM11.564 14.3882L11.9302 15.3187H11.9302L11.564 14.3882ZM10.1791 10.9786L9.34943 10.4203V10.4203L10.1791 10.9786ZM9.49029 12.3561L8.54586 12.0274V12.0274L9.49029 12.3561ZM16.7071 4.29289C16.3166 3.90237 15.6834 3.90237 15.2929 4.29289C14.9024 4.68342 14.9024 5.31658 15.2929 5.70711L16.7071 4.29289ZM18.1213 8.53553C18.5118 8.92606 19.145 8.92606 19.5355 8.53553C19.9261 8.14501 19.9261 7.51184 19.5355 7.12132L18.1213 8.53553ZM16 16C15.4477 16 15 16.4477 15 17C15 17.5523 15.4477 18 16 18V16ZM21.88 10.8011C21.7701 10.2598 21.2423 9.91012 20.701 10.02C20.1598 10.1299 19.8101 10.6577 19.92 11.1989L21.88 10.8011ZM12 20C7.58172 20 4 16.4183 4 12H2C2 17.5228 6.47715 22 12 22V20ZM4 12C4 7.58172 7.58172 4 12 4V2C6.47715 2 2 6.47715 2 12H4ZM12 4C12.1495 4 12.298 4.00409 12.4453 4.01216L12.5547 2.01515C12.371 2.00509 12.186 2 12 2V4ZM12.4698 9.94436L18.1181 4.29613L16.7039 2.88191L11.0556 8.53015L12.4698 9.94436ZM19.5323 5.71034L13.6703 11.5723L15.0845 12.9865L20.9465 7.12455L19.5323 5.71034ZM9.98995 15.1414L10.0374 14.8093L8.0575 14.5264L8.01005 14.8586L9.98995 15.1414ZM9.29015 13.9213L8.80222 14.0198L9.19778 15.9802L9.68571 15.8818L9.29015 13.9213ZM13.6703 11.5723C12.8844 12.3582 12.5736 12.664 12.2287 12.9048L13.3737 14.5447C13.8964 14.1797 14.3472 13.7239 15.0845 12.9865L13.6703 11.5723ZM9.68571 15.8818C10.7079 15.6755 11.3371 15.5522 11.9302 15.3187L11.1977 13.4577C10.8064 13.6118 10.3796 13.7015 9.29015 13.9213L9.68571 15.8818ZM12.2287 12.9048C11.9079 13.1288 11.5618 13.3144 11.1977 13.4577L11.9302 15.3187C12.44 15.1181 12.9245 14.8583 13.3737 14.5447L12.2287 12.9048ZM11.0556 8.53015C10.243 9.34283 9.74031 9.83942 9.34943 10.4203L11.0087 11.5369C11.2665 11.1538 11.6034 10.8108 12.4698 9.94436L11.0556 8.53015ZM10.0374 14.8093C10.2107 13.5963 10.2829 13.121 10.4347 12.6848L8.54586 12.0274C8.31572 12.6886 8.22004 13.3887 8.0575 14.5264L10.0374 14.8093ZM9.34943 10.4203C9.01364 10.9192 8.74356 11.4594 8.54586 12.0274L10.4347 12.6848C10.5759 12.2791 10.7688 11.8933 11.0087 11.5369L9.34943 10.4203ZM19.5323 4.29613C19.9228 4.68665 19.9228 5.31981 19.5323 5.71034L20.9465 7.12455C22.1181 5.95298 22.1181 4.05348 20.9465 2.88191L19.5323 4.29613ZM20.9465 2.88191C19.7749 1.71034 17.8754 1.71034 16.7039 2.88191L18.1181 4.29613C18.5086 3.9056 19.1418 3.9056 19.5323 4.29613L20.9465 2.88191ZM15.2929 5.70711L18.1213 8.53553L19.5355 7.12132L16.7071 4.29289L15.2929 5.70711ZM20 12C20 14.2091 18.2091 16 16 16V18C19.3137 18 22 15.3137 22 12H20ZM19.92 11.1989C19.9723 11.4569 20 11.7247 20 12H22C22 11.5903 21.9588 11.1893 21.88 10.8011L19.92 11.1989Z"/></svg>笔记</a>
+
+      <div class="menu-group" onclick="toggleMenu('adminMenu')">
+        <span class="menu-arrow {{ 'open' if page in ('settings','diagnose','prompts','qa') else '' }}" id="arrow_adminMenu">&triangleright;</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.33208 3.80339C10.3203 1.43175 13.6801 1.43175 14.6683 3.80339C14.8612 4.26629 15.4063 4.48037 15.8679 4.26734C18.3224 3.13448 20.8657 5.67775 19.7328 8.13227C19.5198 8.59383 19.7338 9.13897 20.1967 9.33184C22.5684 10.32 22.5684 13.6799 20.1967 14.668C19.7338 14.8609 19.5198 15.4061 19.7328 15.8676C20.8657 18.3221 18.3224 20.8654 15.8679 19.7325C15.4063 19.5195 14.8612 19.7336 14.6683 20.1965C13.6801 22.5681 10.3203 22.5681 9.33208 20.1965C9.13921 19.7336 8.59408 19.5195 8.13251 19.7325C5.67799 20.8654 3.13473 18.3221 4.26758 15.8676C4.48061 15.4061 4.26654 14.8609 3.80364 14.668C1.43199 13.6799 1.43199 10.32 3.80364 9.33184C4.26654 9.13897 4.48061 8.59383 4.26758 8.13227C3.13473 5.67775 5.67799 3.13448 8.13251 4.26734C8.59408 4.48037 9.13921 4.26629 9.33208 3.80339ZM8 12C8 9.79086 9.79086 8 12 8C14.2091 8 16 9.79086 16 12C16 14.2091 14.2091 16 12 16C9.79086 16 8 14.2091 8 12Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M12 10C10.8954 10 10 10.8954 10 12C10 13.1046 10.8954 14 12 14C13.1046 14 14 13.1046 14 12C14 10.8954 13.1046 10 12 10Z"/></svg>管理
+      </div>
+      <div class="menu-sub {{ 'open' if page in ('settings','diagnose','prompts','qa') else '' }}" id="adminMenu">
+        <a href="/settings" class="{{ 'active' if page == 'settings' else '' }}">系统设置</a>
+        <a href="/diagnose" class="{{ 'active' if page == 'diagnose' else '' }}">诊断</a>
+        <a href="/prompts" class="{{ 'active' if page == 'prompts' else '' }}">Prompt</a>
+        <a href="/qa" class="{{ 'active' if page == 'qa' else '' }}">Q&A</a>
+      </div>
+    </nav>
+    <div style="padding:8px;border-top:1px solid var(--border)">
+      <button class="btn btn-sm" id="themeToggle" onclick="toggleTheme()" style="width:100%;justify-content:center;gap:6px" title="切换暗黑模式">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="vertical-align:-2px"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 14V4a6 6 0 010 12z"/></svg>
+        <span id="themeLabel">暗黑</span>
+      </button>
+    </div>
+    {% block sidebar_extra %}{% endblock %}
+  </div>
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="切换侧栏"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+
+  <!-- Mobile Top Bar -->
+  <div class="topbar">
+    <button class="sidebar-toggle" id="mobileSidebarToggle" onclick="toggleSidebar()" title="菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    <span class="topbar-home">学习搭子</span>
+    <button class="sidebar-toggle" onclick="toggleTheme()" title="切换主题"><svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 14V4a6 6 0 010 12z"/></svg></button>
+  </div>
+
+  <div class="main" id="mainArea">
+    <div id="globalChatPanel">
+  <div class="chat-header"><h3>AI 助手</h3><button class="modal-close" onclick="toggleGlobalChat()" style="position:static;font-size:20px" aria-label="关闭"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+  <div class="chat-body" id="globalChatMsgs"></div>
+  <div class="chat-input-area">
+    <input type="text" id="globalChatInput" placeholder="问我任何问题..." onkeydown="if(event.key==='Enter')sendGlobalChat()">
+    <button class="btn btn-primary btn-sm" onclick="sendGlobalChat()">发送</button>
+  </div>
+</div>
+
+{% block content %}{% endblock %}
+  </div>
+
+</div>
+
+<div class="ai-fab" onclick="toggleGlobalChat()" title="AI 助手"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M7 10C7 9.44772 7.44772 9 8 9H8.01C8.56228 9 9.01 9.44772 9.01 10C9.01 10.5523 8.56228 11 8.01 11H8C7.44772 11 7 10.5523 7 10ZM11 10C11 9.44772 11.4477 9 12 9H12.01C12.5623 9 13.01 9.44772 13.01 10C13.01 10.5523 12.5623 11 12.01 11H12C11.4477 11 11 10.5523 11 10ZM16 9C15.4477 9 15 9.44772 15 10C15 10.5523 15.4477 11 16 11H16.01C16.5623 11 17.01 10.5523 17.01 10C17.01 9.44772 16.5623 9 16.01 9H16ZM6.93417 2C6.95604 2 6.97799 2 7 2L17.0658 2C17.9523 1.99995 18.7161 1.99991 19.3278 2.08215C19.9833 2.17028 20.6117 2.36902 21.1213 2.87868C21.631 3.38835 21.8297 4.0167 21.9179 4.67221C22.0001 5.28388 22.0001 6.0477 22 6.9342V13.0658C22.0001 13.9523 22.0001 14.7161 21.9179 15.3278C21.8297 15.9833 21.631 16.6117 21.1213 17.1213C20.6117 17.631 19.9833 17.8297 19.3278 17.9179C18.7161 18.0001 17.9523 18.0001 17.0658 18L14 18C13.8864 18 13.7757 18.036 13.6838 18.1028L9.27568 21.3087C8.32858 21.9975 7 21.321 7 20.1499V18C6.22604 18 5.44118 18.0213 4.67221 17.9179C4.0167 17.8297 3.38835 17.631 2.87868 17.1213C2.36902 16.6117 2.17028 15.9833 2.08215 15.3278C1.99991 14.7161 1.99995 13.9523 2 13.0658L2 7C2 6.97799 2 6.95604 2 6.93417C1.99995 6.04769 1.99991 5.28387 2.08215 4.67221C2.17028 4.0167 2.36902 3.38835 2.87868 2.87868C3.38835 2.36902 4.0167 2.17028 4.67221 2.08215C5.28387 1.99991 6.04769 1.99995 6.93417 2Z"/></svg></div>
+
+<script>
+// 快速模式：页面加载时从 localStorage 恢复
+(function(){
+  if(localStorage.getItem('quickMode')==='true'){
+    document.body.classList.add('quick-mode');
+  }
+})();
+</script>
+
+</body>
+</html>

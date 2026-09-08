@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+<rect width="400" height="300" fill="white"/>
+<line x1="98.0" y1="218.0" x2="166.0" y2="82.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="166.0" y1="82.0" x2="302.0" y2="82.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="302.0" y1="82.0" x2="370.0" y2="218.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="370.0" y1="218.0" x2="98.0" y2="218.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="98.0" y1="218.0" x2="302.0" y2="82.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="370.0" y1="218.0" x2="30.0" y2="82.0" style="stroke:#333;stroke-width:2;fill:none"/>
+<line x1="98.0" y1="218.0" x2="30.0" y2="82.0" style="stroke:#666;stroke-width:1.5;fill:none;stroke-dasharray:6,3"/>
+<line x1="166.0" y1="82.0" x2="30.0" y2="82.0" style="stroke:#666;stroke-width:1.5;fill:none;stroke-dasharray:6,3"/>
+<text x="104.0" y="212.0" font-size="10" fill="#333" font-weight="bold">A</text>
+<text x="172.0" y="76.0" font-size="10" fill="#333" font-weight="bold">B</text>
+<text x="308.0" y="76.0" font-size="10" fill="#333" font-weight="bold">C</text>
+<text x="376.0" y="212.0" font-size="10" fill="#333" font-weight="bold">D</text>
+<text x="36.0" y="76.0" font-size="10" fill="#333" font-weight="bold">E</text>
+<text x="149.3" y="121.3" font-size="10" fill="#333" font-weight="bold">F</text>
+<text x="206.0" y="144.0" font-size="10" fill="#333" font-weight="bold">G</text>
+</svg>

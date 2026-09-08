@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <h1>试卷库</h1>
+  <div class="actions"><a href="/batch-upload" class="btn">整卷上传</a><a href="/papers/generate" class="btn btn-primary btn-lg">组卷</a></div>
+</div>
+
+<div class="card">
+  <div class="card-title">筛选</div>
+  <div class="row">
+    <div class="form-group"><label>学科</label><select id="filterSubject"><option value="">全部</option></select></div>
+    <div class="form-group"><label>年级</label><select id="filterGrade"><option value="">全部</option></select></div>
+    <div class="form-group"><label>类型</label><select id="filterType"><option value="">全部</option><option value="uploaded">整卷上传记录</option><option value="custom">自定义</option><option value="mock_exam">模拟卷</option><option value="final_exam">压轴卷</option><option value="topic_exam">专题卷</option></select></div>
+  </div>
+  <button class="btn btn-primary" onclick="loadPapers()">搜索</button>
+</div>
+
+<div class="card"><div id="paperTable"></div></div>
+
+<script>
+function uploadState(status){return {open:'待上传',processing:'处理中',ready:'待生成',attention:'需处理',done:'已生成'}[status]||'待处理'}
+
+async function init(){
+  try{
+    var m=await $API.get('/api/questions/meta/options');
+    var fs=document.getElementById('filterSubject'),fg=document.getElementById('filterGrade');
+    fs.innerHTML='<option value="">全部</option>'+m.subjects.map(function(s){return '<option value="'+$esc(s)+'">'+$esc(s)+'</option>'}).join('');
+    fg.innerHTML='<option value="">全部</option>'+m.grades.map(function(g){return '<option value="'+$esc(g)+'">'+$esc(g)+'</option>'}).join('');
+  }catch(e){}
+  loadPapers();
+}
+
+async function loadPapers(){
+  var params={limit:100};
+  if(document.getElementById('filterSubject').value)params.subject=document.getElementById('filterSubject').value;
+  if(document.getElementById('filterGrade').value)params.grade=document.getElementById('filterGrade').value;
+  if(document.getElementById('filterType').value)params.paper_type=document.getElementById('filterType').value;
+  var t=document.getElementById('paperTable');t.innerHTML='<span class="spin"></span> 加载中...';
+  try{
+    var data=await $API.get('/api/papers/library?'+new URLSearchParams(params));
+    if(!data.length){t.innerHTML='<div class="empty">暂无试卷或整卷上传记录</div>';return}
+    var html='<table><thead><tr><th>标题</th><th>学科</th><th>年级</th><th>类型</th><th>状态</th><th>题目数</th><th>时间</th><th>操作</th></tr></thead><tbody>';
+    data.forEach(function(p){
+      var uploaded=p.record_type==='upload_session';
+      html+='<tr><td><b>'+$esc(p.title)+'</b></td><td>'+$esc(p.subject||'-')+'</td><td>'+$esc(p.grade||'-')+'</td><td>'+(uploaded?'整卷上传':$type(p.paper_type))+'</td><td><span class="tag">'+$esc(uploaded?uploadState(p.status):'可使用')+'</span></td><td>'+(p.question_count||0)+'</td><td>'+$fmt(p.created_at)+'</td>';
+      html+='<td><div class="actions">';
+      if(uploaded){
+        html+='<a href="/batch-upload?session='+encodeURIComponent(p.session_id)+'" class="btn btn-sm btn-primary">'+(p.status==='ready'?'生成试卷':'查看上传')+'</a>';
+      }else{
+        html+='<a href="/papers/'+encodeURIComponent(p.id)+'" class="btn btn-sm">查看</a>';
+        html+='<button class="btn btn-sm" onclick="dl(\''+$esc(p.id)+'\',\'html\')">HTML</button>';
+        html+='<button class="btn btn-sm" onclick="dl(\''+$esc(p.id)+'\',\'word\')">Word</button>';
+        html+='<button class="btn btn-sm btn-danger" onclick="delP(this,\''+$esc(p.id)+'\')">删除</button>';
+      }
+      html+='</div></td></tr>';
+    });
+    t.innerHTML=html+'</tbody></table>';
+  }catch(e){t.innerHTML='<div class="empty">加载失败：'+$esc(e.message||'未知错误')+'</div>'}
+}
+
+function dl(id,fmt){window.open('/api/papers/'+encodeURIComponent(id)+'/download?fmt='+encodeURIComponent(fmt),'_blank')}
+async function delP(btn,id){
+  if(!await $confirm('确定删除这份试卷？',{danger:true}))return;
+  $busy(btn,true,'删除中...');
+  try{await $API.del('/api/papers/'+encodeURIComponent(id));$toast('已删除','ok');loadPapers()}
+  catch(e){$toast(e.message,'error');$busy(btn,false)}
+}
+document.addEventListener('DOMContentLoaded', function(){ init(); });
+</script>
+{% endblock %}
