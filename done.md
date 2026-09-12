@@ -1,62 +1,51 @@
-# 本轮已完成任务（2026-09-07，功能级检查轮：逐模块读码/验证/修复/记录）
+# 本轮已完成任务（2026-09-11，R4 深度检修 + R5 文档线索补实现 + 服务器部署）
 
-> 触发：用户要求"按功能检查，不是纯冒烟——看代码、想到问题、验证、修复、记录，中间及时备份与文档更新"。
-> 本轮方法：按功能链路逐个读核心代码 → 提出疑点 → 写探针/读调用链验证 → 修复 → 登记本文；大范围深查由两个子 Agent 并行（F2-F4 / F5-F9），其发现由主会话逐条取证后修复。
-> 备份：`backups/func_check_20260907/`（10 文件，本轮全部改动对象的修复前副本）。上一轮 done.md 已归档 `updates/done_20260906_核验补课轮.md`。
+> R4 触发：「修一下学习agent（双端架构）… 深度检修 & 优化前端设计 & 绘图等，大胆想象，小心选择，谨记备份。帮我**字面意义**上的'检查'，不是冒烟而是看代码、想到问题、验证、修复、记录。中间及时写好备份 & 文档更新。注意多端同步 & 检修。」→「全都啃，干完再说」
+> R5 触发：「你看一下所有文档中含有的所有线索代表的优秀功能都实现了没，补好再查，然后推到服务器」
+> 备份：`backups/audit_r4_20260911/`（270 文件 / 8.97 MB + 6 个探针脚本）；`backups/deploy_r5_20260911/`（部署脚本）
+> **详细记录（权威版）**：[updates/20260911_deep_audit_r4_工作记录.md](updates/20260911_deep_audit_r4_工作记录.md)、[updates/20260911_文档线索实现状态对照.md](updates/20260911_文档线索实现状态对照.md)
+> 上一轮记录已归档至 [updates/done_20260910_桌面合并轮.md](updates/done_20260910_桌面合并轮.md)
 
-## 1. 路由对账（前后端契约）
+## 0. 回归基线（R4 最重要产出）
 
-自建探针递归展开 FastAPI 0.141 的 `_IncludedRouter`（惰性复合路由，顶层只有 52 个对象）：后端 **212 条 API 路由** vs 前端 96 处引用 → **74 条精确匹配，0 条真实 404 断口**。其余 22 条"疑似 MISSING"均为 JS 拼接截断（`'/api/notes/' + id`）或 `_rollback/` 备份目录误报；96 条"后端零引用"均为带参详情/操作端点（拼接调用静态不可配对）。探针教训：改探针时误删 `sys.path.insert`，加载了错误 main——两个"灵异结果"折腾三轮，根因是探针自身。
+**修复前全量 `python -m pytest backend` = 崩溃 / `no tests ran`；修复后 = `160 passed`（约 22s，零失败）。**
 
-## 2. 修复清单（10 项，全部探针或测试验证）
+原记录的「145/145」**不可复现**。两个带模块级 `sys.exit` 的独立 harness 脚本被判为 `test_*.py` 收集 → 导入期执行脚本体 → `SystemExit` → 整个会话 INTERNALERROR。用 `backend/conftest.py` 的 `collect_ignore` 解决（**不改名、不删文件、可逆，不丢任何测试**）。
 
-| # | 功能 | 问题 | 修复 | 验证 |
-|---|------|------|------|------|
-| 1 | F1 多图角色分类 | 视觉链 ZhipuAI→Kimi：违 MiMo-first 定规，Kimi 无视觉必 400 | 分类链改 MiMo→ZhipuAI，删 Kimi；`xiaomi_chat` 增加 `thinking_disabled` 参数 | 160 测试全绿 |
-| 2 | F1 统一视觉入口 | `_call_vision_model_async` ZhipuAI 优先 MiMo 次之 | 调整为 MiMo→ZhipuAI→Kimi（Fact.md 2026-09-06 定规） | 测试更新为新契约断言 |
-| 3 | F8 检查点幂等 | **探针坐实**：重复提交未被拒，新教学段被误挂 checkpoint_response，total_checkpoints 虚增污染掌握度统计 | 前后端：CheckpointRequest/submit 增加 `segment_index`（前端 currentSegment.index），已响应段重复提交 400 拒绝 | 探针：重复提交被拒、正常推进计数 1→2 |
-| 4 | F4 整卷批改漏题记 0 分 | AI 分段漏题 → unanswered 强制 0 分计入且 failed_count=0 → `paper.user_score` 被低分覆盖 | 缺题标记 `unmapped`（score=None 不计分），complete 需 failed=0 且 unmapped=0 | 逻辑核验 |
-| 5 | F4 批改失败残留 | 冻结题缺失/超容量/无法分割三处 raise 不清理临时 Question+两份图片，重试翻倍 | 三处 raise 前统一 `_cleanup_failed_query()` | 代码路径核验 |
-| 6 | F3 组卷覆盖校验 | `_has_exact_question_coverage` 要求严格同序，但 prompt 只约束"保留一次"——AI 按题型重排必两次重试全挂 | 改集合相等+无重复（题序合法性由 data-question-id 支撑） | 语义核验 |
-| 7 | F3 saved_config 合并 | 默认值永不为空（paper_type="custom" 等），配置三项被静默丢弃 | 合并判定改 `req.model_dump(exclude_unset=True)` | 语义核验 |
-| 8 | F5-F9 kimi_ocr | 主链 GLM 优先 + Kimi 视觉兜底必 400 白烧 2 次 | MiMo 主力 → GLM 回退，删 Kimi 分支 | 代码核验 |
-| 9 | F5-F9 reference SVG | 同上（GLM→Kimi） | GLM→MiMo，删 Kimi | 代码核验 |
-| 10 | F5-F9 笔记 OCR/表情分析 | 笔记 OCR 无 MiMo（只配小米 key 必 400）；表情分析 GLM 主力+Kimi 兜底 | 笔记 OCR MiMo 优先；表情分析 MiMo→GLM 删 Kimi | 代码核验 |
+> 方法论教训：最初用**正则**统计「模块级副作用」，把三引号字符串里的脚本也算了进来，得出"6 个文件 / 会丢 23 个用例"的错误结论——**必须先纠正再动手，否则会去"修" 4 个本来正常的文件**。已入库为独立 FreqErr 条目。
 
-## 3. 记档未修（下轮候选）
+## 1. R4 修复（16 项，全部验证）
 
-- **组卷 generate 同步挂起 20-30s 无落盘无找回**（已立案给方案：异步四件套，待用户拍板——改响应契约涉前端 4 模板，APK 不受影响已核实）
-- **Agent 会话 save_image 死路**（ChatMsg 50KB 装不下图片 base64，需产品决策：前端直传 ocr/upload）
-- M：focus 教学段 AI 失败吞成伪段落、会话消息失败不落盘、Agent 改笔记绕过图谱同步、拆题失败静默单题、banks 读改写竞态、worksheet modify 不保留题集、L1-L6 若干
-- 文档裁决：Design 12.7"AI 自主编辑海马体"与 5.1 权限边界不冲突（编辑权=业务决策权，写入仍走服务层），待措辞调和
+| 类别 | 项数 | 代表问题 |
+|------|------|----------|
+| 测试基建 | 4 | pytest 全量崩溃；子进程 `text=True` 缺 `encoding` 致 gbk 解码失败、**断言被静默截断** |
+| **安全** | 2 | `export` 明文导出 `api_password`；`import` 可清空它 → **一次导入关掉全站鉴权**（闭环） |
+| 静默数据损坏 | 3 | `_sanitize_svg` 无条件 unescape → 空画布；占位卡片骗过质检；板书文本未转义 |
+| 契约/顺序 | 2 | `PUT /api/questions/{id}` 缺锁定守卫；解题链路守卫晚于副作用 → 悬挂产物 |
+| 功能不可用 | 3 | 编辑器触屏/键盘加不上元件；全屏无能力检测；离线层 `_start` 零调用点 |
+| 前端/一致性 | 2 | 11 处 message 未转义直入 `innerHTML`；对比模式重复扣 viewBox 原点 |
 
-## 4. 验证（用户要求：手动运行时验证直到没有问题）
+## 2. R5 文档线索补实现（4 项，全部验证）
 
-- **B 档（临时 SQLite + 真实 service 函数）11/11**：F4-H1 漏题 unmapped 不计分且 user_score 不被覆盖；F4-H3 失败清理计数不增；F3-H2 重排通过/重复拒绝/缺题拒绝；F3-H4 saved 的 worksheet 类型+模板生效、显式字段覆盖
-- **A 档（子进程 uvicorn + HTTP，隔离库）8/8**：health/daily-quote 200；focus/start 真 AI 首段 200 且带 index；checkpoint 200 → 重复提交 **400 拒绝**；total_checkpoints 保持 1（F8-2 HTTP 层闭环）
-- **C 档（真 AI 网络调用）2/2**：多图角色分类真 MiMo 返回合法 roles（question/extra 判定正确）；kimi_ocr 真调用日志 "OCR succeeded with Xiaomi mimo-v2.5"，逐字正确（3+5 / 12÷4）
-- `pytest` **160 passed**（含更新后的视觉链契约断言）；compileall 通过
-- F8-2 service 层探针：重复提交拒绝 ✓、正常推进计数 1→2 ✓
-- 路由对账探针：212 条路由 0 断口
+两路只读子 Agent 穷尽挖掘全部文档，得 **49 条「未做/待做」**（Design.md 13 + FUTURE.md 36）。本轮补实现其中 4 项：
 
-## 5. 备份与文档
+1. **多 `window.open` 打包下载**：原前端一次点击同步开最多 4 个窗口，浏览器只放行第一个却被提示"已分 4 个下载"——**假成功**。新增 `GET /api/papers/{id}/download-bundle?modes=...` 返回单个 zip。
+2. **搜题 `_find_matches`**：题库 > 1000 条时先用学科/年级 SQL 前置过滤（为空则**回退**保召回），候选集加 1200 条硬上限——原来是无界全表 + **同步** `SequenceMatcher` 阻塞事件循环。
+3. **上传分块读**：抽 `backend/services/upload_guard.py`，三处共用「分块读 + 累计上限 + 超限立即 413」——原为"先全量 read 后验大小"，内存峰值已经发生。
+4. **编辑器触屏兜底**（R4 已完成，R5 在 FUTURE.md 标记）。
 
-- `backups/func_check_20260907/`：10 文件（全部改动对象修复前副本）
-- FreqErr.md 新增：mock 与现实脱节、夹具时间戳、stream 泄漏三条（见该文件）
-- 深查报告全文：两个子 Agent（F2-F4 / F5-F9）已完成并逐条取证
+## 3. 修正的文档漂移（3 处）
 
-## 6. 部署（2026-09-07 05:00，本轮收尾）
+- `README.md:216`「只包含 WEB 服务端，无桌面端组件」 ↔ `Design.md` 及仓库现状（桌面端已并入）→ 改写并新增 §15.3 桌面端章节
+- `FUTURE.md` **同一文件内**「单题批改」既列"已实现"又列"未实现" → 删除陈旧条目
+- `FUTURE.md` 优化方向 4 条已完成的就地标记
 
-- 服务器：12 个改动文件（6 services + 2 routers + 3 前端 JS + 1 模板）经 scp（mindog 通道）推送到 `C:\all_projects\learningAgent\backend\`，`_la_restart.ps1`（云助手 RunCommand）重启，**health HTTP 200**
-- zhongkao-widget：修 build.py GBK 崩溃残留 + config 外置改造（frozen 时 ROOT_DIR=exe 目录、首启从包内释放 config）→ PyInstaller onedir 打包（153MB/zip 66MB）→ 上传 `C:\all_projects\zhongkao-widget\`：`countdown.exe`(7MB) + `_internal/` + **外置 `config/`（app/calendar/quotes/schedule 四 json，升级 exe 不丢配置）**；exe 本机烟测存活、config 释放验证通过
-- 踩坑记录：服务器 cmd 默认 shell 中文路径/PowerShell 管道损坏 → 远程命令用 cmd 语法 + 英文文件名（countdown.exe）；zip UTF-8 文件名经 bsdtar 在 GBK 会话解出乱码 → 英文重命名修复
-- 验证矩阵（手动运行时）：B 档 11/11、A 档 8/8、C 档 2/2、pytest 160/160
+## 4. 服务器部署（2026-09-11 18:38）
 
-## 7. round 60：讲课 API 化 + 整卷连讲 + Agent 试卷读写（2026-09-08）
+**20 文件 scp → nssm restart → 6 端点全 200 + 新端点注册与行为双重验证通过。** 服务器备份留在 `_backup_20260911_r5/`。详见 [updates/20260911_文档线索实现状态对照.md](updates/20260911_文档线索实现状态对照.md) §5。
 
-- **讲课 API**：`services/lecture_service.py` + `routers/lecture.py`——GET papers/questions 清单、POST plan/{qid}（单题）、POST plan-paper（**整卷连讲，跨题摘要压缩传递**：只带上题收尾句，长卷不超限）。v4-pro 生成，失败降级两步直读。
-- **Web 讲课页**：`/lecture`（templates/lecture.html + static/js/lecture.js）——试卷/题目双入口选择、逐步步骤列表高亮、浏览器 SpeechSynthesis 朗读、整卷连讲。**安卓 WebView 直接打开即为手机讲课入口**。
-- **Agent 试卷读写意图**：sessions.py 新增 `edit_paper`（title/subject/grade）与 `delete_paper`（pending_confirmation 确认闸；题目保留仅解绑）。
-- **部署**：6 文件 scp → nssm restart → health/lecture/plan 端点全部线上 200（真 AI 5 步计划）。
-- 期间修复：服务器 8000 被孤儿 python 进程占位（SSH 会话起的 0.0.0.0 绑定进程静默死亡所致）→ 清孤儿 + nssm 服务化（LearningAgent，SYSTEM 常驻+自动拉起+日志滚动）根治。
-- 验证：test_r60 15/15；线上端点 200 ×4；真 AI 5 步计划（含九宫格 hint）。
+## 5. 尚未完成
+
+FUTURE.md / Design.md 中其余 **45 条**未实现项（分类与判断见 R5 记录 §2）：小改可落地 8 条、中等特性 5 条、大特性/架构级 7 条、部署与设备类 4 条。其中大特性（schemdraw、本地向量索引、尺规作图状态机、笔迹矢量化、题库权限工作台、MiMo ASR 接入等）属**周级工作量**，不适合单次改动赶工。
+
+> **诚实声明**：前端交互类修复（打包下载、编辑器兜底、mermaid 时序、离线提示）**只做了静态验证 + 回归**，本环境无浏览器无真机，**未做真机冒烟**。

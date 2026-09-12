@@ -333,7 +333,10 @@ def _atomic_write_text(path: str, content: str) -> None:
 def load_settings() -> dict:
     try:
         if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            # utf-8-sig：兼容外部工具（PowerShell Set-Content 等）写出的带 BOM
+            # settings.json——2026-09-10 实测 BOM 会让本函数抛 JSONDecodeError，
+            # 全部设置静默回退默认值（Key、鉴权 token 全丢），测试 48 连挂。
+            with open(SETTINGS_FILE, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
             out = dict(_default_settings)
             out.update(data)

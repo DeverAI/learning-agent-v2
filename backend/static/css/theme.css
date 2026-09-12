@@ -24,7 +24,13 @@
   --border-accent:var(--accent);
   --text:#1a1b1e;
   --text2:#52545c;
-  --text3:#9b9ca5;
+  /* 2026-09-11 无障碍修正：原 #9b9ca5 对 --bg(#f5f6f8) 仅 2.52:1、对卡片白底 2.73:1，
+     连 WCAG AA 大字线(3.0)都不到。而 --text3 实际承载的是 hint(12px)、sys-time(11px)、
+     空状态说明这类**信息性正文**（全站 112 处引用），按 AA 正文要求应 >=4.5:1。
+     改为 #6f7077 后：对 --bg 4.56:1、对卡片 4.93:1，达标且仍明显弱于 --text2(6.98:1)，
+     文字层次 text > text2 > text3 保持不变。测算脚本见
+     backups/deploy_r5_20260911/_probe_contrast.py */
+  --text3:#6f7077;
   --accent:#2b5aed;
   --accent-soft:rgba(43,90,237,.10);
   --accent-glow:rgba(43,90,237,.22);
@@ -68,7 +74,9 @@
   --border-accent:var(--accent);
   --text:#e4e4ea;
   --text2:#8e8e98;
-  --text3:#7a7a85;
+  /* 2026-09-11 无障碍修正：原 #7a7a85 对卡片底(#18181e) 4.17:1，不足 AA 正文的 4.5:1。
+     改为 #80808b 后对卡片 4.53:1、对页面底 4.93:1；--text2(5.45:1) 无需调整。 */
+  --text3:#80808b;
   --accent:#6d8bff;
   --accent-soft:rgba(109,139,255,.12);
   --accent-glow:rgba(109,139,255,.30);

@@ -152,7 +152,21 @@ def test_question_challenge_levels_are_bounded_and_need_evidence_consensus():
 
 
 def test_empty_reasoning_response_retries_with_larger_budget(monkeypatch):
+    """空正文 + `finish_reason=length` 时必须重试，且**重试预算要跳得足够大**。
+
+    这里刻意让 mock **只在预算 >= REASONING_SAFE_MIN 时**才返回正文 —— 模拟真实情况：
+    本项目主力模型 `deepseek-v4-pro` 是**推理模型**，写 1500 字课稿时光 reasoning 就要
+    3300+ tokens，实测 2048 与 4096 都拿不到正文（正文长度为 0），8192 才行。
+
+    为什么要把这段写进测试注释：旧断言是 `calls == [128, 512]`，等于把
+    "512 就够"这个**已经被实测推翻的假设**固化成了契约。后果是 2026-09-11
+    有人（我）按"正文太长会撞上限"的直觉把备课预算从 4096 下调到 2048，
+    测试照样全绿，而生产上备课**一片都写不出来**。
+    """
     calls = []
+    # REASONING_SAFE_MIN 是模块级常量，而本文件里的 ai_service 是单例，取的是模块。
+    from services import ai_service as _ai_module
+    floor = _ai_module.REASONING_SAFE_MIN
 
     class Response:
         status_code = 200
@@ -160,9 +174,9 @@ def test_empty_reasoning_response_retries_with_larger_budget(monkeypatch):
 
         def json(self):
             budget = calls[-1]
-            if budget < 512:
+            if budget < floor:
                 return {"choices": [{"message": {"content": "", "reasoning_content": "思考"},
-                                      "finish_reason": "length"}]}
+                                     "finish_reason": "length"}]}
             return {"choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}]}
 
     class Client:
@@ -185,7 +199,10 @@ def test_empty_reasoning_response_retries_with_larger_budget(monkeypatch):
         {"model": "reasoning", "messages": [], "max_tokens": 128}, timeout=10,
     ))
     assert result == "OK"
-    assert calls == [128, 512]
+    assert calls[0] == 128
+    assert calls[1] >= floor, (
+        f"重试预算只有 {calls[1]}，推理模型仍然拿不到正文（需要 >= {floor}）"
+        f" —— 这正是 2026-09-11 备课写不出内容的成因")
 
 
 def test_kimi_model_forces_supported_temperature(monkeypatch):

@@ -131,9 +131,14 @@
         var span=document.createElement('span');
         span.style.cssText='padding:2px 8px;border-radius:3px;background:var(--accent-soft);color:var(--accent);font-size:12px;display:inline-flex;align-items:center;gap:4px';
         span.textContent=t;
-        var x=document.createElement('span');
-        x.style.cssText='cursor:pointer;color:var(--err)';
-        x.textContent='\u00d7';
+        // 原为 <span>+纯文本 ×：不可键盘聚焦、无 aria 标签，且与 app.js 的统一关闭图标
+        // 风格不一致（FreqErr [&times; 关闭按钮]）。改为真 button。
+        var x=document.createElement('button');
+        x.type='button';
+        x.setAttribute('aria-label','删除标签 '+t);
+        x.title='删除标签';
+        x.style.cssText='cursor:pointer;color:var(--err);background:none;border:0;padding:0;line-height:1;display:inline-flex;align-items:center';
+        x.innerHTML=(window._closeIconSvg ? window._closeIconSvg() : '删除');
         x.addEventListener('click',function(){deleteTag(t)});
         span.appendChild(x);
         el.appendChild(span);
@@ -358,7 +363,7 @@
       st.innerHTML='<div class="alert">已暂存为同一道题（共 '+fileList.length+' 张）。可删除不需要的图或修正角色后点「开始处理」。</div>';
       renderStagedMulti();
     }).catch(function(e){
-      st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+e.message+'</div>';
+      st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc(e.message)+'</div>';
     });
   }
 
@@ -469,7 +474,14 @@
     fd.append('upload_mode',mode);
     fd.append('bank',bank);
     window.$API.upload('/api/ocr/batch-process',fd).then(function(r){
-      $toast(r.message,'ok');
+      // 后端会返回被跳过的题目（已被其他请求启动 / 已锁定 / 状态不允许）。
+      // 原先只弹 r.message，于是"已启动 5 道"实际只跑了 2 道，另外 3 道无声消失。
+      var rej=(r&&r.rejected)||[];
+      if(rej.length){
+        $toast(r.message+'；另有 '+rej.length+' 道被跳过（已在处理中、已锁定或状态不允许）','warn');
+      }else{
+        $toast(r.message,'ok');
+      }
       stagedIds=[];stagedImageUrls={};stagedMulti=null;renderStagedSingle();
       document.getElementById('uploadStatus').innerHTML='';
       document.getElementById('userHint').value='';document.getElementById('userTags').value='';
@@ -495,8 +507,9 @@
   function loadQuestions(page){
     if(page!==undefined){_page=page;window._page=page}
     var params={};
-    ['filterSubject','filterGrade','filterStatus','filterKeyword'].forEach(function(id){
-      var v=document.getElementById(id).value;if(v)params[id.replace('filter','').toLowerCase()]=v;
+    ['filterSubject','filterGrade','filterStatus','filterKeyword','filterDifficulty'].forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      var v=el.value;if(v)params[id.replace('filter','').toLowerCase()]=v;
     });
     var bk=document.getElementById('bankFilter').value;
     if(bk)params.bank=bk;
@@ -526,6 +539,24 @@
         if(level==='low')return'<span class="tag" style="background:var(--warn-bg);color:var(--warn)">存疑</span>';
         return'';
       }
+      function _difficultyBadge(q){
+        var d=q.difficulty||'';
+        if(!d)return'';
+        var colors={'基础':'var(--ok-bg)','中档':'var(--accent-soft)','难':'var(--warn-bg)','自招':'var(--err-bg)'};
+        var fg={'基础':'var(--ok)','中档':'var(--accent)','难':'var(--warn)','自招':'var(--err)'};
+        return'<span class="tag" style="background:'+(colors[d]||'var(--subtle)')+';color:'+(fg[d]||'var(--text2)')+'" title="难度：'+$esc(d)+'">'+$esc(d)+'</span>';
+      }
+      // 识别链路的**降级**必须在列表页就能看见。
+      // 原先这两种情况只写进 storage/task_states/{qid}.json，而该文件在任务正常完成时
+      // 会被 _clear_task_state 删掉 —— 用户看到的是"已完成"，实际题干可能少了一半。
+      function _degradedBadge(q){
+        var flags=q.audit_flags||[];var out='';
+        if(flags.some(function(f){return f&&f.type==='split_fallback'}))
+          out+='<span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="整页切题未成功，已按单题处理：这条可能是整页多题，建议核对后手动拆题">切题降级</span>';
+        if(flags.some(function(f){return f&&f.type==='ocr_partial_failure'}))
+          out+='<span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="部分图片识别失败，题干或参考答案可能不完整">识别不全</span>';
+        return out;
+      }
       var html='';
       if(isMobile){
         // Mobile: compact card view
@@ -534,7 +565,7 @@
           var moreTgs=(q.knowledge_tags||[]).length>3?' +'+((q.knowledge_tags||[]).length-3):'';
           var prev=$esc((q.ocr_text||'').substring(0,80)+(q.ocr_text&&q.ocr_text.length>80?'...':''));
           var statusIcon=q.status==='error'?'<span style="color:var(--err);font-weight:bold">E</span>':q.status==='done'?'<span style="color:var(--ok);font-weight:bold">OK</span>':'<span style="color:var(--text3)">...</span>';
-          var challengeBadge=_challengeBadge(_challengeLevel(q));
+          var challengeBadge=_challengeBadge(_challengeLevel(q))+_degradedBadge(q)+_difficultyBadge(q);
           html+='<div class="q-card" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--card-bg)">';
           html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">';
           html+='<div style="display:flex;align-items:center;gap:6px;min-width:0">';
@@ -546,6 +577,7 @@
           html+='</div>';
           html+='<div style="display:flex;gap:3px;flex-shrink:0">';
           html+='<button class="btn btn-sm btn-detail" style="padding:3px 8px;font-size:11px" data-qid="'+$esc(q.id)+'">查看</button>';
+          if(q.status==='done')html+='<button class="btn btn-sm btn-note" style="padding:3px 8px;font-size:11px" data-qid="'+$esc(q.id)+'">存笔记</button>';
           if(q.status!=='done')html+='<button class="btn btn-sm btn-retry" style="padding:3px 8px;font-size:11px" data-qid="'+$esc(q.id)+'">重试</button>';
           html+='</div></div>';
           html+='<div style="font-size:12px;color:var(--text2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;margin-bottom:4px">'+prev+'</div>';
@@ -560,7 +592,7 @@
           var prev=$esc((q.ocr_text||'').substring(0,60)+(q.ocr_text&&q.ocr_text.length>60?'...':''));
           var errTitle=$esc(q.error_message||'未知错误');
           var statusHtml=q.status==='error'?$status(q.status)+'<div style="color:var(--err);font-size:11px;margin-top:4px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+errTitle+'">'+errTitle+'</div>':$status(q.status);
-          statusHtml+=_challengeBadge(_challengeLevel(q));
+          statusHtml+=_challengeBadge(_challengeLevel(q))+_degradedBadge(q)+_difficultyBadge(q);
           html+='<tr>';
           html+='<td style="max-width:160px">'+statusHtml+'</td>';
           html+='<td style="white-space:nowrap">'+$esc(q.subject||'-')+'</td>';
@@ -569,6 +601,10 @@
           html+='<td style="max-width:300px"><div style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all" title="'+prev+'">'+prev+'</div></td>';
           html+='<td style="white-space:nowrap"><div class="actions">';
           html+='<button class="btn btn-sm btn-detail" data-qid="'+$esc(q.id)+'">查看</button>';
+          // R23：题目 → 笔记的一键入口。此前 questions.js/editor.js 对 /api/notes
+          // 零调用：学生把一道题整理进笔记只能靠「批改中心 → 另存为错题」，
+          // 题库里的题没有出口（搜题拍题画图笔记管线缺的最后一段）。
+          if(q.status==='done')html+='<button class="btn btn-sm btn-note" data-qid="'+$esc(q.id)+'">存笔记</button>';
           html+='<button class="btn btn-sm btn-danger" data-qid="'+$esc(q.id)+'">删除</button>';
           if(q.status!=='done')html+='<button class="btn btn-sm btn-retry" data-qid="'+$esc(q.id)+'">重试</button>';
           html+='</div></td></tr>';
@@ -580,14 +616,74 @@
       var pg=document.getElementById('pagination');
       var start=_page*ps+1,end=_page*ps+items.length;
       pg.innerHTML='<span style="font-size:12px;color:var(--text2)">'+(hasMore?start+'-'+end+'+':start+'-'+end)+'</span>';
-      if(_page>0)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page-1)+')">← 上一页</button>';
+      if(_page>0)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page-1)+')">上一页</button>';
       pg.innerHTML+='<span style="font-size:12px;font-weight:600">第 '+(_page+1)+' 页</span>';
-      if(hasMore)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page+1)+')">下一页 →</button>';
+      if(hasMore)pg.innerHTML+='<button class="btn btn-sm" onclick="loadQuestions('+(_page+1)+')">下一页</button>';
       updateBankUI();
       t.querySelectorAll('.btn-detail').forEach(function(b){b.addEventListener('click',function(){viewDetail(this.dataset.qid)})});
       t.querySelectorAll('.btn-danger').forEach(function(b){b.addEventListener('click',function(){delQ(this.dataset.qid)})});
       t.querySelectorAll('.btn-retry').forEach(function(b){b.addEventListener('click',function(){retryQ(this.dataset.qid)})});
-    }).catch(function(e){t.innerHTML='<div class="empty">加载失败: '+(e.message||'')+'</div>'});
+      t.querySelectorAll('.btn-note').forEach(function(b){b.addEventListener('click',function(){saveNoteFromQuestion(this.dataset.qid, this)})});
+    }).catch(function(e){t.innerHTML='<div class="empty">加载失败: '+$esc(e.message||'')+'</div>'});
+  }
+
+  // ===== 题目 → 笔记（R23）=====
+  // 为什么不做成「一句话 AI 整理」：笔记页的 auto-organize/ai-generate 已经负责
+  // AI 整理，这里只做**确定性的搬运**（题干+答案原文 + 题目引用标记），
+  // 保证一键可用、离线可读，且不消耗模型额度。
+  function _plainText(s){
+    return String(s==null?'':s)
+      .replace(/<br\s*\/?>/gi,'\n')
+      .replace(/<\/[pP]>|<\/div>|<\/li>/g,'\n')
+      .replace(/<[^>]+>/g,'')
+      .replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/&amp;/g,'&').replace(/&quot;/g,'"')
+      .replace(/\n{3,}/g,'\n\n').trim();
+  }
+
+  function saveNoteFromQuestion(qid, btn){
+    if(!qid)return;
+    if(btn)$busy(btn,true,'存入中...');
+    window.$API.get('/api/questions/'+encodeURIComponent(qid)).then(function(q){
+      var stem=_plainText(q.question_html||q.ocr_text||'');
+      var ans=_plainText(q.answer_html||q.standard_answer||'');
+      var head=(q.subject||'')+(q.grade||'');
+      var title=(head?head+' · ':'')+'错题笔记 · '+(stem.replace(/\s+/g,' ').slice(0,24)||qid.slice(0,8));
+      var parts=['[[QUESTION:'+qid+']]'];
+      if(stem)parts.push('## 题干\n'+stem);
+      if(ans)parts.push('## 标准答案\n'+ans);
+      if(q.knowledge_tags&&q.knowledge_tags.length)parts.push('知识点：'+q.knowledge_tags.join('、'));
+      return window.$API.post('/api/notes',{
+        title:title.slice(0,60), content:parts.join('\n\n'),
+        subject:q.subject||'', grade:q.grade||'',
+        knowledge_tags:q.knowledge_tags||[], question_ids:[qid]
+      }).then(function(r){
+        var nid=(r&&r.id)||'';
+        if(!nid)return {id:''};
+        // R24 修正：只写 question_ids 是不够的 —— [[QUESTION:id]] 只有在该 id
+        // 出现在笔记 references 里时才被 resolve_note_references 换成链接，
+        // 否则学生打开笔记看到的是一行裸标记文本。
+        var refName='题目 '+(stem.replace(/\s+/g,' ').slice(0,18)||qid.slice(0,8));
+        return window.$API.post('/api/notes/'+encodeURIComponent(nid)+'/references',
+          {references:[{type:'question', id:qid, name:refName}]})
+          .then(function(){return {id:nid, ref_ok:true}})
+          .catch(function(){return {id:nid, ref_ok:false}});
+      });
+    }).then(function(r){
+      if(btn)$busy(btn,false);
+      var id=(r&&r.id)||'';
+      // 引用注册失败时如实说明（笔记已建好，但正文里的题目标记不会变成链接）
+      $toast(r&&r.ref_ok===false?'已存入笔记（题目引用未登记，正文标记不会变成链接）':'已存入笔记',r&&r.ref_ok===false?'warn':'ok');
+      // 给出去向：学生大概率想接着改/看这篇笔记
+      if(id&&typeof $confirm==='function'){
+        $confirm('已创建笔记，现在去笔记页打开它吗？',{title:'存入成功',okText:'去笔记页'}).then(function(go){
+          if(go)window.location.href='/notes?note='+encodeURIComponent(id);
+        });
+      }
+    }).catch(function(e){
+      if(btn)$busy(btn,false);
+      $toast('存笔记失败：'+(e&&e.message?e.message:'未知错误'),'error');
+    });
   }
 
   function retryQ(qid){
@@ -639,9 +735,16 @@
       $md(d.answer_html||'*暂无解答*',document.getElementById('tab-answer'));
       // info tab：OCR 也用 $md 渲染 Markdown/LaTeX；所有文本先做 HTML 实体转义防 XSS（使用全局 $esc）
       var tagsHtml=(d.knowledge_tags||[]).map(function(t){return '<span class="tag">'+$esc(t)+'</span>'}).join('');
+      var diffOpts=['','基础','中档','难','自招'].map(function(v){
+        var label=v||'未标';
+        return '<option value="'+$esc(v)+'"'+((d.difficulty||'')===v?' selected':'')+'>'+$esc(label)+'</option>';
+      }).join('');
       var infoHtml='<p><b>学科: </b>'+$esc(d.subject||'-')+'</p>'+
         '<p><b>年级: </b>'+$esc(d.grade||'-')+'</p>'+
         '<p><b>地区: </b>'+$esc(d.region||'未标注')+'</p>'+
+        '<p><b>难度: </b><select id="detailDifficulty" style="min-height:28px">'+diffOpts+'</select> '+
+        '<button class="btn btn-sm" id="saveDifficultyBtn">保存难度</button>'+
+        '<span style="font-size:11px;color:var(--text3);margin-left:6px">自招分层与组卷按此筛选</span></p>'+
         '<p><b>均分: </b>'+$esc(d.avg_score===undefined||d.avg_score===null?'未标注':d.avg_score)+'</p>'+
         '<p><b>知识点: </b><div style="display:flex;flex-wrap:wrap;gap:2px;max-height:80px;overflow-y:auto">'+tagsHtml+'</div></p>';
       var refStatus={ready:'已生成',not_required:'原题无图',failed:'生成失败',pending:'等待生成'}[d.reference_svg_status]||'未处理';
@@ -663,6 +766,20 @@
         (d.status==='error'?'<p><b>错误信息: </b></p><pre style="background:var(--err-bg);padding:10px;white-space:pre-wrap;font-size:13px;color:var(--err)">'+$esc(d.error_message||'未知错误')+'</pre>':'');
       document.getElementById('tab-info').innerHTML=infoHtml;
       $md(d.ocr_text||'*暂无 OCR 文本*',document.getElementById('infoOcrBody'));
+      var saveDiffBtn=document.getElementById('saveDifficultyBtn');
+      if(saveDiffBtn){
+        saveDiffBtn.addEventListener('click',function(){
+          var btn=this;
+          var val=document.getElementById('detailDifficulty').value;
+          if(d.is_resolved){$toast('题目已锁定，先取消锁定再改难度','error');return}
+          $busy(btn,true,'保存中...');
+          window.$API.put('/api/questions/'+encodeURIComponent(d.id),{difficulty:val}).then(function(r){
+            d.difficulty=val;
+            if(currentDetail)currentDetail.difficulty=val;
+            $toast('难度已保存'+(val?('：'+val):'（已清除）'),'ok');
+          }).catch(function(e){$toast('保存难度失败：'+(e&&e.message||e),'error')}).finally(function(){$busy(btn,false)});
+        });
+      }
       var dg=(d.diagrams||[]).filter(function(x){return x});
       var tabDiagrams=document.getElementById('tab-diagrams');tabDiagrams.innerHTML='';
       if(dg.length>0){
@@ -783,7 +900,7 @@
   // 公共结构图 POST 操作（generate/check/rewrite 共享，消除约 80 行重复逻辑）
   function _sgRenderError(el, failText, msg, retryFn, retryLabel){
     el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">'+
-      '<div>'+(msg||failText)+'</div>'+
+      '<div>'+$esc(msg||failText)+'</div>'+
       '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="'+retryFn+'">'+(retryLabel||'重试')+'</button>'+
       '</div>';
   }
@@ -1102,8 +1219,9 @@
   function _stripHtmlAndMd(t){return t.replace(/<[^>]*>/g,'').replace(/[#*_~`>\[\]()!-]/g,'').replace(/\n{3,}/g,'\n\n').trim()}
   function _tryParseJson(t){try{var o=JSON.parse(t);if(o&&typeof o==='object')return o}catch(e){}return null}
   function _getInsertContent(t){var o=_tryParseJson(t);if(o)return o;return{text:t}}
-  window.copyMD=function(t){navigator.clipboard.writeText(t).then(function(){$toast('MD已复制','ok')}).catch(function(){$toast('复制失败','error')})};
-  window.copyPlain=function(t){navigator.clipboard.writeText(_stripHtmlAndMd(t)).then(function(){$toast('纯文本已复制','ok')}).catch(function(){$toast('复制失败','error')})};
+  // R24：统一走 $copyText（http 下 navigator.clipboard 不存在，原写法会同步抛错、按钮无反应）
+  window.copyMD=function(t){return window.$copyText(t,'MD已复制')};
+  window.copyPlain=function(t){return window.$copyText(_stripHtmlAndMd(t),'纯文本已复制')};
   window.insertToQuestion=function(t,field){
     if(!currentDetail){$toast('无当前题目','error');return}
     if(typeof saveUndo==='function')saveUndo('插入'+field,currentDetail.id,{[field]:currentDetail[field]||''});
@@ -1124,7 +1242,7 @@
       $toast('已更新','ok');
     }).catch(function(e){$toast(e.message,'error')})
   };
-  window.copyText=function(id){var el=document.getElementById(id);navigator.clipboard.writeText(el.value).then(function(){$toast('已复制','ok')}).catch(function(){$toast('复制失败','error')})};
+  window.copyText=function(id){var el=document.getElementById(id);if(!el)return;return window.$copyText(el.value)};
   window.insertDiagramAt=function(textareaId){
     var ta=document.getElementById(textareaId);
     if(!ta)return;
@@ -1199,7 +1317,7 @@
       _sgSetLoading(false,targetId);
       if(r.error || !r.svg){
         el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">'+
-          '<div>'+(r.message || '该题目暂无结构梳理图数据。')+'</div>'+
+          '<div>'+$esc(r.message || '该题目暂无结构梳理图数据。')+'</div>'+
           '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="generateStructureGraph()">AI 生成结构梳理图</button>'+
           '</div>';
         return;
@@ -1242,7 +1360,7 @@
       if(!currentDetail || currentDetail.id !== targetId){ _sgSetLoading(false,targetId); return; }
       _sgSetLoading(false,targetId);
       if(e.name === 'AbortError') return;
-      el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+(e.message||'')+'</div>';
+      el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc(e.message||'')+'</div>';
     });
   }
 
@@ -1512,7 +1630,7 @@
       }
       renderComparison(data);
     }).catch(function(e){
-      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+(e.message||'')+'</div>';
+      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc(e.message||'')+'</div>';
     });
   }
   function generateComparison(){
@@ -1529,7 +1647,7 @@
     }).catch(function(e){
       _cmpState.loading=false;
       el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">'+
-        '<div>'+(e.message||'生成失败')+'</div>'+
+        '<div>'+$esc(e.message||'生成失败')+'</div>'+
         '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="generateComparison()">重试</button>'+
         '</div>';
       $toast(e.message||'生成失败','error');
@@ -1739,8 +1857,13 @@
     var scale=Math.min(rect.width/vw,rect.height/vh)*0.9;
     scale=Math.max(0.3,Math.min(3,scale));
     _cmpScale=scale;
-    _cmpX=(rect.width-vw*scale)/2-minX*scale;
-    _cmpY=(rect.height-vh*scale)/2-minY*scale;
+    // 与 _sgFitToViewport 保持同一坐标约定（同文件 L1333-1334 已明确写下）：
+    // SVG 自身已按 viewBox 的 minX/minY 映射内部坐标，外层 CSS transform 只需居中
+    // 可视盒，**不能再次扣除原点**。原实现多减了 minX*scale / minY*scale——
+    // 当 viewBox 原点非 0（后端生成的图很常见）时整张图会偏向右下角，
+    // 这正是「对比模式」与「结构梳理」对同一张图呈现不一致的根因。
+    _cmpX=(rect.width-vw*scale)/2;
+    _cmpY=(rect.height-vh*scale)/2;
     _cmpApplyTransform();
   }
   function _cmpApplyTransform(){
@@ -1831,10 +1954,24 @@
   function cmpFullScreen(){
     var c=document.getElementById('cmpContainer');
     if(!c) return;
+    // 能力检测：Android WebView 默认不实现 Fullscreen API，此时 c.requestFullscreen 是
+    // undefined，直接调用会**同步抛 TypeError**——而 .catch 只接 Promise 拒绝，捕不到同步异常，
+    // 表现为「点了没反应」+ 未捕获错误，且 :fullscreen 布局整个分支永远不可达。
+    var req = c.requestFullscreen || c.webkitRequestFullscreen;
+    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if(!req){
+      if(typeof $toast==='function') $toast('当前环境不支持全屏（App 内可能不提供此能力）','warn');
+      return;
+    }
     if(!document.fullscreenElement){
-      c.requestFullscreen().catch(function(){});
-    }else{
-      document.exitFullscreen();
+      try {
+        var p = req.call(c);
+        if(p && typeof p.catch==='function') p.catch(function(){});
+      } catch(e) {
+        if(typeof $toast==='function') $toast('无法进入全屏','warn');
+      }
+    }else if(exit){
+      try { exit.call(document); } catch(e) { /* 退出失败无需打扰用户 */ }
     }
   }
 

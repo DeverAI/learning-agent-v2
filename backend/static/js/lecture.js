@@ -70,12 +70,17 @@
         var li = document.createElement('li');
         li.textContent = (plan.number ? '第' + plan.number + '题 · ' : '') + s.title;
         li.dataset.pi = pi; li.dataset.si = si;
+        // 原实现只写 dataset，全页无任何监听（两个 addEventListener 都绑在下拉框上），
+        // 而 highlight() 还会给条目加选中底色 → 视觉上暗示可点、实际点不动。
+        li.style.cursor = 'pointer';
+        li.title = '点击从这一步开始讲解';
+        li.addEventListener('click', function () { enterStep(pi, si); });
         ol.appendChild(li);
       });
       if (plan.error) {
         var li = document.createElement('li');
         li.textContent = '第' + plan.number + '题：生成失败（' + plan.error + '）';
-        li.style.color = '#c00';
+        li.style.color = 'var(--err, #c0392b)';
         ol.appendChild(li);
       }
     });
@@ -102,11 +107,39 @@
   }
 
   function speakText(text) {
-    if (!$('autoSpeak').checked || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN'; u.rate = 1.0;
-    window.speechSynthesis.speak(u);
+    if (!$('autoSpeak').checked) return;
+    // Android WebView：SpeechSynthesis 不可用，通过原生 TTS 桥朗读（round 60 A1）
+    if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
+      window.AndroidTTS.speak(text);
+      return;
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN'; u.rate = 1.0;
+      window.speechSynthesis.speak(u);
+      return;
+    }
+    // 两个分支都不可用时，原实现**直接落到函数末尾**：无 else、无 setStatus、无 toast、
+    // 无 console.warn —— 在多数 Android WebView（无 speechSynthesis、也无注入桥）里，
+    // 点「朗读本步」表现为"点了没声、页面也没提示"。这里给出明确反馈。
+    // 注意：本页不调用服务端 /api/tts（对比 focus.js 的双引擎兜底），故无其它退路。
+    setStatus('当前环境不支持语音朗读（既无原生桥也无 speechSynthesis），可改用下方讲解文本阅读');
+  }
+
+  function stopSpeaking() {
+    if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
+      window.AndroidTTS.stop();
+    }
+    // 原实现在此处**无条件调用自身** stopSpeaking()，既无循环变量也无 base case →
+    // 任何调用点都会抛 RangeError: Maximum call stack size exceeded；且 LectureApp.stop()
+    // 里的 setStatus('已停止') 永远执行不到，浏览器侧朗读也停不掉。
+    // 正确行为是取消浏览器侧排队中的朗读。
+    try {
+      if (window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
+        window.speechSynthesis.cancel();
+      }
+    } catch (e) { /* 个别环境无 cancel，忽略即可 */ }
   }
 
   function enterStep(pi, si) {
@@ -120,6 +153,16 @@
 
   function advance(delta) {
     if (!state.plans.length) return;
+    // 未开始状态（planIdx<0）：起点统一定为第 1 题第 1 步。
+    // 原实现让 pi=-1、si=0 直接进 enterStep(-1,0)，而 enterStep 内部因 `state.plans[-1]`
+    // 为 undefined 立即 return；且 while 条件里的 `state.plans[pi] && ...` 在 pi=-1 时
+    // 整体短路为 false，连循环都进不去 → "上一步/下一步"**永远空操作**（已确证）。
+    // 这是讲题页整条链路（朗读/自动朗读/停止）不可达的根因，必须先修这里。
+    if (state.planIdx < 0) {
+      if (delta < 0) return;          // 还没开始，"上一步"无事可做
+      enterStep(0, 0);
+      return;
+    }
     var pi = state.planIdx, si = state.stepIdx + delta;
     while (si < 0 || (state.plans[pi] && si >= (state.plans[pi].steps || []).length)) {
       if (delta > 0) { pi++; if (pi >= state.plans.length) { setStatus('全部讲完'); return; } si = 0; }
@@ -129,9 +172,54 @@
     enterStep(pi, si);
   }
 
+  // ===== 边看边问（R23）=====
+  // 讲解不中断：提问自动携带当前步骤的讲解内容作为上下文，走 /api/chat。
+  // 回答只落在页面上，不占用讲解朗读通道；想听回答可以再点「朗读本步」之外的
+  // 方式（本页 TTS 通道保持简单，不做回答朗读，避免与讲解队列互相打断）。
+  function askAboutStep() {
+    var inp = $('lecAskInput');
+    var q = (inp && inp.value || '').trim();
+    if (!q) { setStatus('先输入问题再点「问」'); return; }
+    var area = $('lecAskArea');
+    if (!area) return;
+    var ctx = '';
+    var c = currentStep();
+    if (c) {
+      var plan = state.plans[c.pi] || {};
+      var head = (plan.number ? ('第' + plan.number + '题 ') : '') + (c.step.title || '');
+      ctx = '我正在看「' + head + '」这一步的讲解，讲解内容：'
+        + String(c.step.speech || c.step.text || '').slice(0, 1200) + '。';
+    } else {
+      ctx = '我正在看讲题页面（还没有选中讲解步骤）。';
+    }
+    var uq = document.createElement('div');
+    uq.style.cssText = 'color:var(--accent);margin:6px 0';
+    uq.textContent = '[问] ' + q;
+    area.appendChild(uq);
+    var ld = document.createElement('div'); ld.innerHTML = '<span class="spin"></span>';
+    area.appendChild(ld);
+    inp.value = '';
+    var btn = $('btnAsk'); if (btn) btn.disabled = true;
+    window.$API.post('/api/chat', { message: ctx + '我的问题：' + q }).then(function (r) {
+      ld.remove();
+      var ad = document.createElement('div'); ad.className = 'agent-msg-ai';
+      var md = document.createElement('div'); md.style.cssText = 'font-size:13px';
+      ad.appendChild(md); area.appendChild(ad);
+      $md((r && r.reply) || '', md);
+      area.scrollTop = area.scrollHeight;
+    }).catch(function (e) {
+      ld.remove();
+      var ed = document.createElement('div'); ed.style.cssText = 'color:var(--err)';
+      ed.textContent = e.message || '提问失败';
+      area.appendChild(ed);
+    }).finally(function () { if (btn) btn.disabled = false; });
+  }
+
   window.LectureApp = {
+    ask: askAboutStep,
     start: function () {
-      window.speechSynthesis = window.speechSynthesis || window.speechSynthesis;
+      // 原为 `window.speechSynthesis = window.speechSynthesis || window.speechSynthesis`：
+      // 等式两侧同一表达式，赋值结果与不执行完全等价，是纯粹的无效语句（G9），已删除。
       if ($('paperSelect').value) { loadPaperPlans(); }
       else if ($('questionSelect').value) { loadSinglePlan(); }
       else { setStatus('请先选择试卷或题目'); }
@@ -140,10 +228,12 @@
     next: function () { advance(1); },
     speakCurrent: function () {
       var c = currentStep();
-      if (c) speakText(c.step.speech); else setStatus('先选择试卷或题目生成计划');
+      // 原文案是"先选择试卷或题目生成计划"，但计划已生成时也会走到这里（currentStep 恒 null），
+      // 提示与事实不符。改为如实说明当前状态。
+      if (c) speakText(c.step.speech); else setStatus('当前还没有开始讲解，点「下一步」开始');
     },
     stop: function () {
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      stopSpeaking();
       setStatus('已停止');
     }
   };

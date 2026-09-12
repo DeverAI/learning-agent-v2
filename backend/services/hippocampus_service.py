@@ -285,8 +285,14 @@ def delete_topic(topic: str) -> bool:
         return False
 
 
-def update_study_session(topic: str, minutes: int, checkpoint_pass_rate: float):
-    """更新学习会话数据"""
+def update_study_session(topic: str, minutes: int = None, checkpoint_pass_rate: float = None):
+    """更新学习会话数据。
+
+    ``minutes`` / ``checkpoint_pass_rate`` 传 ``None`` 表示**本次没有该维度的数据**，
+    不是 0：分钟数以 0 计入（不加不减），通过率**跳过本次滑动平均**。
+    2026-09-11 修正：原实现把 ``None`` 当成 0 参与平均，等于用缺失值冒充低分，
+    会让"没有采集到任何状态的会话"把长期通过率往下拽。
+    """
     with _profile_lock:
         hp = load_hippocampus()
         topics = hp.setdefault("topics", {})
@@ -308,17 +314,19 @@ def update_study_session(topic: str, minutes: int, checkpoint_pass_rate: float):
         except (TypeError, ValueError):
             old_minutes = 0.0
         td["total_minutes"] = old_minutes + (minutes or 0)
-        # 类型安全：checkpoint_pass_rate 滑动平均
-        old_rate = td.get("checkpoint_pass_rate")
-        try:
-            old_rate = float(old_rate) if old_rate is not None else 0.0
-        except (TypeError, ValueError):
-            old_rate = 0.0
-        try:
-            new_rate = float(checkpoint_pass_rate) if checkpoint_pass_rate is not None else 0.0
-        except (TypeError, ValueError):
-            new_rate = 0.0
-        td["checkpoint_pass_rate"] = round(old_rate * 0.7 + new_rate * 0.3, 3)
+        # 类型安全：checkpoint_pass_rate 滑动平均（None=无数据，跳过本次，不按 0 计入）
+        if checkpoint_pass_rate is not None:
+            old_rate = td.get("checkpoint_pass_rate")
+            try:
+                old_rate = float(old_rate) if old_rate is not None else 0.0
+            except (TypeError, ValueError):
+                old_rate = 0.0
+            try:
+                new_rate = float(checkpoint_pass_rate)
+            except (TypeError, ValueError):
+                new_rate = None
+            if new_rate is not None:
+                td["checkpoint_pass_rate"] = round(old_rate * 0.7 + new_rate * 0.3, 3)
         td["last_study"] = _now_iso()
         hp["meta"]["last_updated"] = _now_iso()
         save_hippocampus(hp)

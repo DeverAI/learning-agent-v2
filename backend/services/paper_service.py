@@ -574,25 +574,35 @@ class PaperService:
         concept_notes = self._format_notes_for_worksheet(notes)
 
         # 2. 检索典型例题（status=done）
-        example_ids = await self._search_questions_for_worksheet(params, topic, limit=example_count)
-        if len(example_ids) < example_count:
+        # M3（2026-09-09）：显式 question_ids（regenerate modify 冻结题集）优先——
+        # 原卷 question_ids 顺序即 [例题..., 练习...]（_save_paper 时按此顺序保存），
+        # 按 example_count 切分还原例题/练习，不做重新检索。
+        explicit_ids = list(dict.fromkeys(
+            str(q) for q in (params.get("question_ids") or []) if q))
+        if explicit_ids:
+            example_ids = explicit_ids[:example_count]
+            practice_ids = explicit_ids[example_count:]
             params.setdefault("generation_warnings", []).append(
-                f"相关例题仅找到 {len(example_ids)} 道（请求 {example_count} 道）"
-            )
-        if not example_ids:
-            logger.warning("generate_worksheet: no example questions found for topic=%s", topic)
+                f"已冻结原卷题集（modify 重排）：例题 {len(example_ids)} 道、练习 {len(practice_ids)} 道")
+        else:
+            example_ids = await self._search_questions_for_worksheet(params, topic, limit=example_count)
+            if len(example_ids) < example_count:
+                params.setdefault("generation_warnings", []).append(
+                    f"相关例题仅找到 {len(example_ids)} 道（请求 {example_count} 道）"
+                )
+            if not example_ids:
+                logger.warning("generate_worksheet: no example questions found for topic=%s", topic)
+            # 3. 检索配套练习题（与例题不同）
+            practice_ids = await self._search_questions_for_worksheet(
+                params, topic, limit=practice_count, exclude_ids=set(example_ids))
+            if len(practice_ids) < practice_count:
+                params.setdefault("generation_warnings", []).append(
+                    f"相关练习题仅找到 {len(practice_ids)} 道（请求 {practice_count} 道）"
+                )
+            if not practice_ids:
+                logger.warning("generate_worksheet: no practice questions found for topic=%s", topic)
         example_questions_data = await self._load_questions(example_ids)
         example_questions = self._format_questions_for_worksheet(example_questions_data, "例题")
-
-        # 3. 检索配套练习题（与例题不同）
-        practice_ids = await self._search_questions_for_worksheet(
-            params, topic, limit=practice_count, exclude_ids=set(example_ids))
-        if len(practice_ids) < practice_count:
-            params.setdefault("generation_warnings", []).append(
-                f"相关练习题仅找到 {len(practice_ids)} 道（请求 {practice_count} 道）"
-            )
-        if not practice_ids:
-            logger.warning("generate_worksheet: no practice questions found for topic=%s", topic)
         practice_questions_data = await self._load_questions(practice_ids)
         practice_questions = self._format_questions_for_worksheet(practice_questions_data, "练习题")
 

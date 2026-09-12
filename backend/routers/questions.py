@@ -166,6 +166,7 @@ async def list_questions(
     status: str = Query("", max_length=32),
     bank: str = Query(None, max_length=64),
     region: str = Query(None, max_length=64),
+    difficulty: str = Query(None, max_length=16),
     avg_score_min: float = Query(None),
     avg_score_max: float = Query(None),
     knowledge_tags: str = Query(None, max_length=2000),
@@ -185,6 +186,8 @@ async def list_questions(
         conditions.append(Question.bank == bank)
     if region:
         conditions.append(Question.region == region)
+    if difficulty:
+        conditions.append(Question.difficulty == difficulty)
     if avg_score_min is not None:
         conditions.append(Question.avg_score >= avg_score_min)
     if avg_score_max is not None:
@@ -199,6 +202,7 @@ async def list_questions(
         Question.question_type, Question.score_points_html, Question.diagrams,
         Question.diagram_places, Question.diagram_description, Question.status,
         Question.error_message, Question.source_type, Question.bank, Question.region,
+        Question.difficulty,
         Question.avg_score, Question.audit_flags, Question.is_resolved,
         Question.handwriting_notes, Question.user_hint, Question.image_roles,
         Question.multi_images, Question.comparison_regions,
@@ -1322,6 +1326,17 @@ async def update_question(
     q = await _get_question_for_update(db, question_id)
     if not q:
         raise HTTPException(status_code=404, detail="题目不存在")
+
+    # 锁定守卫（FreqErr [锁定守卫缺失]）：已锁定的题目不允许再改内容。
+    # 同文件的 regenerate / challenge / structure_graph / comparison_regions 等约 20 处
+    # 路径都有同款守卫（统一 409「题目已锁定；请先取消锁定…」），唯独本端点此前遗漏——
+    # 而它是**写入面最宽**的：QuestionUpdate 含 question_html / answer_html /
+    # standard_answer / score_points_html / handwriting_notes / structure_graph /
+    # comparison_regions 等全部内容字段，可静默清空 structure_graph_info 并覆盖正文，
+    # 绕过整套锁定与复核链路。前端只拦了 AI 驱动的修改（结构图/对比分区/质疑），
+    # 手动编辑表单未拦，故守卫必须落在后端。
+    if getattr(q, "is_resolved", False):
+        raise HTTPException(status_code=409, detail="题目已锁定；请先取消锁定再编辑")
 
     update_data = update.model_dump(exclude_unset=True)
     # 题面/解答变化后，旧的结构图检查信息可能不再适用

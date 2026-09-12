@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header"><h1>课稿（提前备课）</h1></div>
+
+<div class="card">
+  <div class="card-title">新建课稿</div>
+  <div class="row">
+    <div class="form-group"><label>主题</label><input type="text" id="newTopic" placeholder="如：二次函数图像与性质"></div>
+    <div class="form-group"><label>学科</label><input type="text" id="newSubject" placeholder="数学"></div>
+    <div class="form-group"><label>年级</label><input type="text" id="newGrade" placeholder="九上"></div>
+    <div class="form-group"><label>分片数</label><input type="number" id="newSections" value="6" min="2" max="16"></div>
+  </div>
+  <button class="btn btn-primary" id="createLessonBtn">生成课稿（后台）</button>
+  <span style="font-size:12px;color:var(--text3);margin-left:8px">先建骨架，讲解词在后台逐片写入；中途取消也可继续读已写部分</span>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span class="card-title" style="margin:0">已有课稿</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="statusFilter" style="min-height:32px">
+        <option value="">全部状态</option>
+        <option value="draft">草稿</option>
+        <option value="final">已定稿</option>
+      </select>
+      <button class="btn btn-sm" id="refreshLessonsBtn">刷新</button>
+    </div>
+  </div>
+  <div id="lessonList"><span class="spin"></span></div>
+</div>
+
+<div class="card" id="lessonDetailCard" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <div>
+      <div class="card-title" style="margin:0" id="detailTitle">课稿</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:4px" id="detailMeta"></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-sm" id="cacheOfflineBtn" title="拉取完整内容进本机缓存，断网可看">缓存离线</button>
+      <button class="btn btn-sm" id="toggleStatusBtn">标为定稿</button>
+      <button class="btn btn-sm btn-danger" id="deleteLessonBtn">删除</button>
+      <button class="btn btn-sm" id="closeDetailBtn">关闭</button>
+    </div>
+  </div>
+  <div id="lessonSections"></div>
+</div>
+
+<script>
+(function(){
+  var _lessons=[];
+  var _current=null;
+  var _sections=[];
+
+  function $(id){return document.getElementById(id)}
+  function esc(s){return window.$esc? $esc(s): String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+  function loadLessons(){
+    var status=$('statusFilter').value;
+    var qs=status?('status='+encodeURIComponent(status)):'';
+    $('lessonList').innerHTML='<span class="spin"></span>';
+    window.$API.get('/api/lessons'+(qs?('?'+qs):'')).then(function(r){
+      _lessons=(r&&r.lessons)||[];
+      renderList();
+    }).catch(function(e){
+      $('lessonList').innerHTML='<div class="empty">加载失败：'+esc(e&&e.message||e)+'</div>';
+    });
+  }
+
+  function renderList(){
+    var box=$('lessonList');
+    if(!_lessons.length){box.innerHTML='<div class="empty">还没有课稿。可在上方新建，或在 Agent 对话里说「帮我备一节…的课」。</div>';return}
+    var html='';
+    _lessons.forEach(function(L){
+      var done=L.filled_sections||0,tot=L.total_sections||0;
+      var st=(L.status==='final')?'已定稿':'草稿';
+      var pct=tot?Math.round(done/tot*100):0;
+      html+='<div class="q-card" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer;background:var(--card-bg)" data-lesson-id="'+esc(L.lesson_id)+'">';
+      html+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">';
+      html+='<div style="min-width:0"><div style="font-weight:600">'+esc(L.title||'未命名')+'</div>';
+      html+='<div style="font-size:12px;color:var(--text3);margin-top:2px">'+esc(L.subject||'')+' '+esc(L.grade||'')+' · '+st+' · '+done+'/'+tot+' 片 · 更新 '+esc(L.updated_at||'')+'</div>';
+      html+='<div style="height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--accent)"></div></div>';
+      html+='</div><button class="btn btn-sm" data-open="'+esc(L.lesson_id)+'">打开</button></div></div>';
+    });
+    box.innerHTML=html;
+    box.querySelectorAll('[data-open]').forEach(function(b){
+      b.addEventListener('click',function(e){e.stopPropagation();openLesson(this.getAttribute('data-open'))});
+    });
+    box.querySelectorAll('[data-lesson-id]').forEach(function(card){
+      card.addEventListener('click',function(){openLesson(this.getAttribute('data-lesson-id'))});
+    });
+  }
+
+  function openLesson(id){
+    $('lessonDetailCard').style.display='block';
+    $('lessonSections').innerHTML='<span class="spin"></span>';
+    // max_chars 给大一些：页面要一次看到整份；离线缓存也靠这次 GET
+    window.$API.get('/api/lessons/'+encodeURIComponent(id)+'?max_chars=200000').then(function(d){
+      _current=d;_sections=d.sections||[];
+      $('detailTitle').textContent=d.title||'未命名课稿';
+      var filled=(d.sections||[]).filter(function(s){return s.script}).length;
+      $('detailMeta').textContent=(d.subject||'')+' '+(d.grade||'')+' · '+
+        (d.status==='final'?'已定稿':'草稿')+' · 片 '+filled+'/'+(d.total_sections||0)+
+        (d.truncated?' · 内容仍被截断，请点「缓存离线」拉全':'');
+      $('toggleStatusBtn').textContent=(d.status==='final')?'改回草稿':'标为定稿';
+      renderSections();
+      $('lessonDetailCard').scrollIntoView({behavior:'smooth',block:'start'});
+    }).catch(function(e){
+      $('lessonSections').innerHTML='<div class="empty">打开失败：'+esc(e&&e.message||e)+'</div>';
+    });
+  }
+
+  function renderSections(){
+    var box=$('lessonSections');
+    if(!_sections.length){box.innerHTML='<div class="empty">这份课稿还没有分片</div>';return}
+    var html='';
+    _sections.forEach(function(s,i){
+      var script=s.script||'';
+      var empty=!script;
+      html+='<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--bg)" data-sec="'+i+'">';
+      html+='<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">';
+      html+='<div style="font-weight:600;min-width:0">'+(i+1)+'. '+esc(s.heading||'（无标题）')+'</div>';
+      html+='<div style="font-size:11px;color:var(--text3);white-space:nowrap">'+(empty?'未写入':((s.duration_sec||0)+' 秒约'))+(s.script_truncated?' · 截断':'')+'</div></div>';
+      html+='<textarea class="sec-script" data-index="'+i+'" rows="'+(empty?3:Math.min(12,Math.max(3,Math.ceil(script.length/40))))+'" style="width:100%;font-size:13px;line-height:1.5;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--card-bg);color:var(--text)" placeholder="讲解词（可直接改）">'+esc(script)+'</textarea>';
+      html+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn btn-sm btn-primary" data-save-sec="'+i+'">保存本片</button></div>';
+      html+='</div>';
+    });
+    box.innerHTML=html;
+    box.querySelectorAll('[data-save-sec]').forEach(function(b){
+      b.addEventListener('click',function(){saveSection(parseInt(this.getAttribute('data-save-sec'),10),this)});
+    });
+  }
+
+  function saveSection(i,btn){
+    if(!_current)return;
+    var ta=boxSec(i);if(!ta)return;
+    if(btn)window.$busy(btn,true,'保存中...');
+    window.$API.patch('/api/lessons/'+encodeURIComponent(_current.lesson_id)+'/sections/'+i,{
+      script: ta.value
+    }).then(function(){
+      window.$toast('本片已保存','ok');
+      _sections[i]=Object.assign({},_sections[i],{script:ta.value});
+    }).catch(function(e){
+      window.$toast('保存失败：'+(e&&e.message||e),'error');
+    }).finally(function(){ if(btn)window.$busy(btn,false); });
+  }
+
+  function boxSec(i){
+    return document.querySelector('.sec-script[data-index="'+i+'"]');
+  }
+
+  $('createLessonBtn').addEventListener('click',function(){
+    var btn=this;
+    var topic=$('newTopic').value.trim();
+    if(!topic){window.$toast('请填写主题','error');return}
+    window.$busy(btn,true,'创建中...');
+    window.$API.post('/api/lessons',{
+      topic:topic,
+      subject:$('newSubject').value.trim(),
+      grade:$('newGrade').value.trim(),
+      title:topic,
+      section_count:parseInt($('newSections').value,10)||6,
+      generate:true
+    }).then(function(r){
+      window.$toast('课稿已创建，后台生成中','ok');
+      loadLessons();
+      if(r&&r.lesson_id)openLesson(r.lesson_id);
+    }).catch(function(e){
+      window.$toast('创建失败：'+(e&&e.message||e),'error');
+    }).finally(function(){ window.$busy(btn,false); });
+  });
+
+  $('statusFilter').addEventListener('change',loadLessons);
+  $('refreshLessonsBtn').addEventListener('click',loadLessons);
+  $('closeDetailBtn').addEventListener('click',function(){
+    $('lessonDetailCard').style.display='none';_current=null;
+  });
+  $('toggleStatusBtn').addEventListener('click',function(){
+    if(!_current)return;
+    var next=_current.status==='final'?'draft':'final';
+    window.$API.post('/api/lessons/'+encodeURIComponent(_current.lesson_id)+'/status',{status:next})
+      .then(function(){ window.$toast(next==='final'?'已定稿':'已改回草稿','ok'); openLesson(_current.lesson_id); loadLessons(); })
+      .catch(function(e){ window.$toast(e&&e.message||e,'error'); });
+  });
+  $('deleteLessonBtn').addEventListener('click',function(){
+    if(!_current)return;
+    window.$confirm('确定删除这份课稿？',{danger:true}).then(function(ok){
+      if(!ok)return;
+      window.$API.del('/api/lessons/'+encodeURIComponent(_current.lesson_id))
+        .then(function(){ window.$toast('已删除','ok'); $('lessonDetailCard').style.display='none'; _current=null; loadLessons(); })
+        .catch(function(e){ window.$toast(e&&e.message||e,'error'); });
+    });
+  });
+  $('cacheOfflineBtn').addEventListener('click',function(){
+    if(!_current)return;
+    var btn=this;
+    window.$busy(btn,true,'缓存中...');
+    // 强制再 GET 一次完整切片，让 offline.js 把整份写进 IndexedDB
+    window.$API.get('/api/lessons/'+encodeURIComponent(_current.lesson_id)+'?max_chars=200000')
+      .then(function(){
+        window.$toast(navigator.onLine===false?'已在离线缓存（当前离线，读的是本地）':'已写入本机离线缓存，断网也能看','ok');
+      })
+      .catch(function(e){
+        window.$toast('缓存失败：'+(e&&e.message||e),'error');
+      })
+      .finally(function(){ window.$busy(btn,false); });
+  });
+
+  // 支持 ?lesson=<id> 深链（Agent 卡片 / 讲课页跳转）
+  document.addEventListener('DOMContentLoaded',function(){
+    loadLessons();
+    try{
+      var m=new URLSearchParams(location.search).get('lesson');
+      if(m)setTimeout(function(){openLesson(m)},300);
+    }catch(e){}
+  });
+})();
+</script>
+{% endblock %}

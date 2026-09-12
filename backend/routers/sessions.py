@@ -12,9 +12,33 @@ logger = get_logger()
 SESSIONS_DIR = os.path.join(STORAGE_DIR, "sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
-import weakref as _weakref_s
-_session_chat_locks: _weakref_s.WeakValueDictionary[str, asyncio.Lock] = _weakref_s.WeakValueDictionary()
-_session_chat_locks_creation_lock = asyncio.Lock()
+# 后台任务「召回」的确定性契约：前端 agent.html 拼消息、本模块解析，
+# 两边必须同格式 —— 提成常量是为了让 test_r23 能直接对同一个来源断言（而不是各写一份）。
+_RECALL_PREFIX = "[系统召回]"
+_RECALL_TASK_ID_RE = re.compile(r"task_id[=:\s]*([a-zA-Z0-9_-]{6,64})")
+# P4 打断判定：学生在后台任务运行中发话时的确定性关键词（不走分类器，防误路由）。
+# cancel 必须确定命中 —— 「取消」误路由成 chat 会让任务继续烧额度；keep/observe 只影响文案。
+_INTERRUPT_CANCEL_RE = re.compile(
+    r"(取消|停下|停一下|别做了|别继续|先停|不用做了|不用继续|abort|cancel|stop\s*it)",
+    re.IGNORECASE,
+)
+_INTERRUPT_KEEP_RE = re.compile(
+    r"(继续|接着(做|说|讲)|别停|keep\s*going|continue)",
+    re.IGNORECASE,
+)
+# 锁已拆到 services/session_locks.py（fg 前台串行 / file 短临界区 / bg 后台任务）。
+# 原先这里是**整会话一把锁**，`session_chat` 持锁直到 AI 回答结束，
+# 把改名、删除、以及将来的后台任务更新全部堵住 -> 用户说的"卡死"。
+from services.session_locks import (  # noqa: E402
+    bg_lock, drop_fg_lock_if_idle, fg_busy, fg_lock, file_lock,
+)
+
+
+class SessionDeletedError(Exception):
+    """对话回合进行中，会话文件被删除。
+
+    用于阻止"回合结束回写把已删除的会话复活"。
+    """
 
 
 class ChatMsg(BaseModel):
@@ -41,14 +65,8 @@ def _session_path(sid: str) -> str:
 
 
 def _get_session_lock(sid: str) -> asyncio.Lock:
-    """获取会话锁；使用 WeakValueDictionary 自动释放不再被引用的锁。"""
-    lock = _session_chat_locks.get(sid)
-    if lock is not None:
-        return lock
-    # 同步创建分支在单线程事件循环中通过 setdefault 原子完成
-    new_lock = asyncio.Lock()
-    existing = _session_chat_locks.setdefault(sid, new_lock)
-    return existing
+    """兼容旧名：现在返回的是**前台回合锁**（保留此名避免外部引用断裂）。"""
+    return fg_lock(sid)
 
 
 def _load(sid: str) -> dict:
@@ -67,29 +85,37 @@ def _load(sid: str) -> dict:
     raise HTTPException(404, "会话不存在")
 
 
-def _save(sid: str, data: dict):
+def _save(sid: str, data: dict, guard_deleted: bool = False):
+    """原子写会话文件。
+
+    `guard_deleted=True`（对话回合回写时使用）：若回合进行期间会话文件已被删除，
+    则**拒绝写回**并抛 `SessionDeletedError`。
+
+    没有这个守卫会出现什么：用户删掉一个正在回答中的会话 -> 回合结束回写 ->
+    会话文件被重新创建 -> **用户以为删了，刷新一看还在**。
+    这是"静默失败"的反面：不是丢数据，是"删了又回来"，更让人困惑。
+    """
+    if guard_deleted and not os.path.exists(_session_path(sid)):
+        raise SessionDeletedError(sid)
     _atomic_write_json(_session_path(sid), data)
 
 
-STEP_LABELS = {
-    "chat": "生成对话回复",
-    "solve": "推理解题",
-    "search": "检索题库",
-    "solve_q": "从题库找题并解答",
-    "paper": "准备组卷参数",
-    "auto_paper": "自动生成试卷",
-    "add_question": "新增题目到题库",
-    "edit_question": "修改题库题目",
-    "style": "更新排版偏好",
-    "profile": "更新用户信息",
-    "need": "记录功能需求",
-    "list_notes": "列出笔记",
-    "get_note": "查看笔记",
-    "create_note": "创建笔记",
-    "modify_note": "修改笔记",
-    "save_image": "保存图片到待处理题目",
-    "error_info": "查看题目错误信息",
-}
+def _registry():
+    """惰性取得工具注册表（导入即注册，重复调用幂等）。
+
+    惰性而非模块级导入：`services.agent_tools` 会拉起 ai_service / OCR 等重模块，
+    放在函数里可以让本路由模块的导入保持轻量，也避免与 routers.ocr 的循环导入。
+    """
+    from services import agent_tools
+    agent_tools.register_all()
+    from services.agent_core import REGISTRY
+    return REGISTRY
+
+
+def _step_labels() -> dict:
+    _registry()
+    from services.agent_core import step_labels
+    return step_labels()
 
 
 def _build_steps(itype: str, idata: dict, ai_steps: list = None) -> list:
@@ -116,7 +142,7 @@ def _build_steps(itype: str, idata: dict, ai_steps: list = None) -> list:
                     })
         if valid:
             return valid
-    label = STEP_LABELS.get(itype, "处理请求")
+    label = _step_labels().get(itype, "处理请求")
     steps = [
         {"parent": "意图识别", "child": "解析消息", "status": "done", "time": ""},
         {"parent": label, "child": "执行", "status": "done", "time": ""},
@@ -132,10 +158,12 @@ def _build_steps(itype: str, idata: dict, ai_steps: list = None) -> list:
 
 
 def _final_steps(sid: str, fallback: list) -> list:
-    """优先返回 AI 执行过程中收集到的真实步骤，没有则回退到计划步骤。"""
-    from services.ai_service import agent_steps_get
-    actual = agent_steps_get(sid)
-    return actual if actual else fallback
+    """保留为薄封装：实现已搬到 `services.agent_core.final_steps`。
+
+    不直接删名，是因为本模块外仍有引用点；删名会把"实现搬家"变成"接口删除"。
+    """
+    from services.agent_core import final_steps
+    return final_steps(sid, fallback)
 
 
 def _cleanup_empty_sessions(max_age_seconds: int = 10 * 60) -> int:
@@ -209,22 +237,34 @@ async def get_session(sid: str):
 
 @router.delete("/{sid}")
 async def delete_session(sid: str):
+    """删除会话。
+
+    锁拆分（R12）后**不再等待**正在进行的对话回合 —— 等待就是用户说的卡死。
+    改为：有前台回合在跑就**立刻**返回 409 说明原因。
+    并发竞态由 `_save(guard_deleted=True)` 兜底，不会把会话复活。
+    """
     p = _session_path(sid)
-    lock = _get_session_lock(sid)
-    async with lock:
+    if fg_busy(sid):
+        raise HTTPException(409, "该对话正在回答中，请等本轮结束后再删除")
+    async with file_lock(sid):
         if not os.path.exists(p):
             raise HTTPException(404, "会话不存在")
         os.remove(p)
-        # 仅在无人排队等待时移除锁，避免等待者被新锁绕过
-        if not lock.locked() and not getattr(lock, "_waiters", None) and _session_chat_locks.get(sid) is lock:
-            _session_chat_locks.pop(sid, None)
+    drop_fg_lock_if_idle(sid)
     return {"message": "已删除"}
 
 
 @router.patch("/{sid}/title")
 async def rename_session(sid: str, req: RenameRequest):
-    """手动重命名对话，或由 AI 根据已有消息总结标题。"""
-    async with _get_session_lock(sid):
+    """手动重命名对话，或由 AI 根据已有消息总结标题。
+
+    同 `delete_session`：有前台回合在跑就立刻 409。
+    不并行改的原因：对话回合结束时会整体回写会话 JSON，期间的标题改动会被**静默回滚**
+    （丢失更新）。与其悄悄丢掉用户的改名，不如明确告诉他稍后再改。
+    """
+    if fg_busy(sid):
+        raise HTTPException(409, "该对话正在回答中，请等本轮结束后再改名")
+    async with file_lock(sid):
         s = _load(sid)
         title = None
         if req.title is not None:
@@ -255,6 +295,65 @@ async def rename_session(sid: str, req: RenameRequest):
         return {"id": sid, "title": s.get("title", "无标题")}
 
 
+async def _try_interrupt_running_tasks(sid: str, message: str) -> dict | None:
+    """P4 打断判定：本会话有运行中后台任务时，确定性处理 cancel/keep/observe。
+
+    返回 None = 无打断条件（没有运行中任务，或消息不是打断语），继续走分类器。
+    返回 dict = 已处理打断，该 dict 直接作为 intent（type=chat + 已写好的 reply 语义
+    由后续 chat 处理器体现；这里用 task_interrupt 专用 type 走轻量回复）。
+
+    三态：
+    - **cancel**：命中取消词 → 对本会话全部 running/pending 任务设 cancel_requested，
+      并如实告知「协作式取消，最多再跑一个检查点」。
+    - **keep**：命中继续词 → 只提示任务仍在跑，不打扰。
+    - **observe**：有运行中任务但既非取消也非继续 → 在分类前把任务列表写进 data，
+      让对话 Agent 知道背景里有事在跑（不替用户做决定）。
+    """
+    try:
+        from services import background_agent as BA
+        running = await BA.list_tasks(sid=sid, status="running")
+        pending = await BA.list_tasks(sid=sid, status="pending")
+        active = list((running or {}).get("tasks") or []) + list((pending or {}).get("tasks") or [])
+    except Exception as exc:
+        logger.warning("interrupt: list tasks failed: %s", exc)
+        return None
+    if not active:
+        return None
+
+    if _INTERRUPT_CANCEL_RE.search(message):
+        cancelled = []
+        for t in active:
+            tid = str(t.get("task_id") or "")
+            if not tid:
+                continue
+            try:
+                await BA.request_cancel(tid)
+                cancelled.append(t.get("title") or tid)
+            except Exception as exc:
+                logger.warning("interrupt: cancel %s failed: %s", tid, exc)
+        n = len(cancelled)
+        reply = (
+            f"已请求取消本会话的 {n} 个后台任务（{'、'.join(cancelled[:3])}"
+            f"{'…' if n > 3 else ''}）。"
+            "取消是**协作式**的：任务会在下一个检查点停下，最多再等约 25 秒兜底；"
+            "已完成的分片会保留，需要时可以说「接着做」续跑。"
+        )
+        return {
+            "type": "task_interrupt",
+            "data": {"decision": "cancel", "cancelled": cancelled},
+            "steps": [{"parent": "打断处理", "child": f"取消 {n} 个后台任务",
+                       "status": "running", "time": ""}],
+            "_interrupt_reply": reply,
+        }
+
+    # keep / observe：**不拦截**。
+    # R27 修正：原先 keep 命中「继续」就短路回一句「我不打断后台任务」，
+    # 于是学生在备课时问「继续讲二次函数」会得到这句废话，**真问题被吞掉**。
+    # keep 的语义是「任务照跑」，不是「不要回答我」——因此一律回落分类器。
+    # 只有 cancel（明确要停任务）才走确定性旁路。
+    return None
+
+
 async def _session_chat_impl(sid: str, req: ChatMsg):
     from services.ai_service import ai_service, agent_steps_clear, agent_tool_calls_clear, agent_tool_calls_add, agent_tool_calls_get, _make_step_callback
     agent_steps_clear(sid)
@@ -266,43 +365,76 @@ async def _session_chat_impl(sid: str, req: ChatMsg):
 
     # Phase 1: classify intent with cheap model
     # 轻量意图分类走统一入口：优先小米 MiMo V2.5（免费），兜底 DeepSeek flash（关思考）
-    try:
-        _intent_messages = [
-            {"role": "system", "content": (
-                "分析意图返回JSON: {\"type\":\"类型\",\"data\":{},\"steps\":[{\"parent\":\"父步骤\",\"child\":\"子步骤\",\"status\":\"running\",\"time\":\"\"}]}。\\n"
-                "类型: chat(闲聊)/solve(解题)/search(搜索题库)/"
-                "solve_q(从题库找题并解题)/paper(组卷)/auto_paper(直接出卷)/"
-                "add_question(新增题目到题库)/edit_question(修改题目)/"
-                "style(改偏好)/profile(存个人信息)/need(要没有的功能，仅当以上类型都不匹配时才用)/"
-                "list_notes(查看笔记列表)/get_note(查看单个笔记)/create_note(创建笔记)/modify_note(修改笔记)/"
-                "save_image(保存图片到待处理题目)/"
-                "error_info(查看题目错误信息)\\n"
-                "search时data含keyword/subject/grade。solve_q时data含问题描述/keywords。"
-                "add_question时data含subject/grade/content(题目内容)/answer(答案)。"
-                "edit_question时data含question_id(唯一题目ID)/keyword(展示用)/field(修改字段)/value(新值)。"
-                "auto_paper时data含subject/grade/type/topic。"
-                "list_notes时data含subject(可选)/tag(可选)。get_note时data含keyword(找笔记关键词)或note_id。"
-                "create_note时data含title/subject/content。modify_note时data含keyword(找笔记)/field/value。"
-                "save_image时data含base64_image(图片base64)/subject(学科)/grade(年级)。"
-                "error_info时data含question_id(可选,无则列出所有标记题目)。"
-                "steps为可选字段，描述Agent计划执行的层级步骤；parent为父步骤名，child为子步骤名，status为running/done/error，time可留空由后端填充。"
-            )},
-            {"role": "user", "content": req.message}
-        ]
-        raw = await ai_service.light_task_chat(_intent_messages, max_tokens=512)
-        intent = ai_service._extract_json(raw)
-    except Exception as e:
-        logger.warning("Session intent classification failed: %s", e)
-        intent = {"type": "chat"}
+    #
+    # 分类器的 system prompt **由工具注册表生成**（agent_core.build_intent_prompt）。
+    # 原先这里是手写的一整串中文，与下面的分支失同步过 —— 见 agent_tools 模块头的
+    # edit_paper / delete_paper 说明。
+    _registry()  # 确保工具表已装载（幂等）
+    from services.agent_core import (
+        Ctx, build_intent_prompt, get as _get_tool, normalize_type, run_with_timeout,
+    )
+    # [系统召回] 旁路（R23）：后台任务完成后前端自动发出的消息走确定性路由，
+    # **不经过意图分类器**。原因：①省一次分类调用；②召回消息含 task_id 与
+    # 「继续讲解」等措辞，过分类器存在被误路由到 lecture/solve 的风险；
+    # ③召回必须**必然**落到 task_recall，否则「召回继续工作」会静默失效。
+    if req.message.startswith(_RECALL_PREFIX):
+        m = _RECALL_TASK_ID_RE.search(req.message)
+        itype = "task_recall" if m else "chat"
+        idata = {"task_id": m.group(1)} if m else {}
+        intent = {
+            "type": itype, "data": idata,
+            "steps": [{"parent": "任务召回", "child": "读取任务产出",
+                       "status": "running", "time": ""}],
+        }
+    else:
+        # P4 打断判定（cancel / keep / observe）——只在「本会话确有运行中后台任务」时启用。
+        # 为什么是确定性而不是交给分类器：「取消」若被误判成 chat，任务会继续烧额度；
+        # 这类短指令没有歧义空间，词表比模型更可靠。
+        interrupt = await _try_interrupt_running_tasks(sid, req.message)
+        if interrupt is not None:
+            intent = interrupt
+        else:
+            try:
+                _intent_messages = [
+                    {"role": "system", "content": build_intent_prompt()},
+                    {"role": "user", "content": req.message},
+                ]
+                raw = await ai_service.light_task_chat(_intent_messages, max_tokens=512)
+                intent = ai_service._extract_json(raw)
+            except Exception as e:
+                logger.warning("Session intent classification failed: %s", e)
+                intent = {"type": "chat"}
 
     if not isinstance(intent, dict):
         logger.warning("Session intent classification returned non-object: %r, falling back to chat", intent)
         intent = {"type": "chat"}
-    itype = intent.get("type", "chat")
-    if not isinstance(itype, str):
-        logger.warning("Session intent type is not a string: %r, falling back to chat", itype)
+
+    # P4 打断已处理完：直接回写会话，不再走分类器/工具表。
+    # task_interrupt 不是注册表工具（它是**路由层**行为，不是 Agent 能力）。
+    if intent.get("type") == "task_interrupt":
+        reply = str(intent.get("_interrupt_reply") or "已处理后台任务打断。")
+        steps = _build_steps("chat", intent.get("data") or {}, intent.get("steps"))
+        messages = list(s.get("messages", []))
+        messages.append({"role": "user", "content": req.message})
+        messages.append({"role": "assistant", "content": reply})
+        s["messages"] = messages
+        _save(sid, s, guard_deleted=True)
+        return {
+            "reply": reply,
+            "steps": _final_steps(sid, steps),
+            "action": {"type": "task_interrupt", "data": intent.get("data") or {}},
+        }
+
+    raw_type = intent.get("type", "chat")
+    itype = normalize_type(raw_type)
+    if not itype:
+        # 认不出（含非字符串）才兜底到 chat。注意与旧行为的差别：旧代码对**任何**
+        # 非空字符串都照单全收，然后落到 chat/solve 兜底分支上；
+        # 现在未知 type 会显式记一条 warning，而不是静默当成对话。
+        logger.warning("Session intent type unrecognized: %r, falling back to chat", raw_type)
         itype = "chat"
-    raw_idata = intent.get("data") if isinstance(intent, dict) else None
+    tool = _get_tool(itype)
+    raw_idata = intent.get("data")
     idata = raw_idata if isinstance(raw_idata, dict) else {}
     ai_steps = intent.get("steps")
     steps = _build_steps(itype, idata, ai_steps)
@@ -311,16 +443,11 @@ async def _session_chat_impl(sid: str, req: ChatMsg):
     messages = list(s.get("messages", []))
     messages.append({"role": "user", "content": req.message})
 
-    confirmation_phrases = {
-        "add_question": "确认新增题目", "edit_question": "确认修改题目",
-        "create_note": "确认创建笔记", "modify_note": "确认修改笔记",
-        "save_image": "确认保存图片", "solve_q": "确认写入解答",
-        "auto_paper": "确认自动组卷", "style": "确认修改偏好",
-        "profile": "确认保存资料",
-    }
-    required_phrase = confirmation_phrases.get(itype)
+    # 写操作确认闸：确认语声明在工具表的 requires_confirm 上（原先手写在本文件）
+    required_phrase = tool.requires_confirm
     if required_phrase and required_phrase not in req.message:
-        reply = f"已整理本次{STEP_LABELS.get(itype, '写入')}请求。为避免意图误判直接修改数据，请核对后发送“{required_phrase}”并附上完整内容。"
+        reply = (f"已整理本次{_step_labels().get(itype, '写入')}请求。"
+                 f"为避免意图误判直接修改数据，请核对后发送“{required_phrase}”并附上完整内容。")
         s["messages"] = messages + [{"role": "assistant", "content": reply}]
         _save(sid, s)
         return {
@@ -328,771 +455,34 @@ async def _session_chat_impl(sid: str, req: ChatMsg):
             "action": {"type": "pending_confirmation", "operation": itype, "data": idata},
         }
 
-    if itype == "paper":
-        from services.config_service import config_service
-        cid = await config_service.save_paper_config(idata) if idata else ""
-        jump = f"/papers/generate?saved_config={cid}"
-        subj = idata.get("subject",""); grade=idata.get("grade","")
-        reply = f"好的！组卷参数已保存（#{cid[:6]}）。" + (f"{subj} {grade}。" if subj else "") + "点击下方卡片跳转组卷页面。"
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "jump_paper", "data": idata, "saved_config": cid}}
-
-    if itype == "style":
-        new_style = idata.get("style_notes", req.message)
-        profile = load_profile()
-        profile["style_notes"] = new_style
-        save_profile(profile)
-        reply = f"收到！排版偏好已更新：{new_style[:100]}。之后的题目都会按这个风格展现。"
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "set_style", "data": {"style_notes": new_style}}}
-
-    if itype == "profile":
-        profile = load_profile()
-        updated = []
-        for k, v in idata.items():
-            if k in profile and v:
-                profile[k] = v
-                updated.append(k)
-        if updated:
-            save_profile(profile)
-            reply = f"记住了！你的{', '.join(updated)}等信息已保存，后续对话会基于这些信息为你定制。"
-        else:
-            reply = "收到你的信息！请告诉我更多细节，比如学校、年级、学习目标等。"
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "set_style", "data": {"updated": updated}}}
-
-    # ====== 新增题目到题库 ======
-    if itype == "add_question":
-        from models.database import async_session as _db_s
-        from models.models import Question as _Q
-        content = idata.get("content", req.message)
-        answer = idata.get("answer", "")
-        subject = idata.get("subject", "")
-        grade = idata.get("grade", "")
-        gen_prompt = (
-            f"根据描述生成一道题目。\n"
-            f"学科: {subject or '通用'}\n年级: {grade or '通用'}\n"
-            f"题目内容: {content}\n答案: {answer or '请推导'}\n"
-            "返回JSON: {{\"question_html\":\"题目HTML(含数学公式用$...$)\","
-            "\"answer_html\":\"答案HTML\"}}"
-        )
-        try:
-            raw = await ai_service.deepseek_chat(
-                [{"role": "user", "content": gen_prompt}], temperature=0.7,
-                max_tokens=32768, scope="solve"
-            )
-            gen = ai_service._extract_json(raw)
-            q_html = gen.get("question_html", content)
-            a_html = gen.get("answer_html", answer)
-        except Exception as exc:
-            logger.warning("Confirmed add_question generation failed: %s", exc)
-            raise HTTPException(502, detail="题目生成未完整成功，未写入题库")
-        if not q_html or not a_html or not answer:
-            raise HTTPException(502, detail="题面、标准答案或解析不完整，未写入题库")
-        new_id = uuid.uuid4().hex[:12]
-        folder = os.path.join(STORAGE_DIR, "questions", new_id)
-        try:
-            # 先建目录再写库：makedirs 失败（磁盘满/权限）时不能留下无目录的幽灵题目
-            os.makedirs(folder, exist_ok=False)
-        except OSError as exc:
-            log_error("sessions.add_question", f"create question folder failed for {new_id}: {exc}")
-            raise HTTPException(500, detail="题目目录创建失败，未写入题库")
-        try:
-            async with _db_s() as _db:
-                q = _Q(id=new_id, folder_path=folder, subject=subject, grade=grade,
-                       ocr_text=content, question_html=q_html, answer_html=a_html,
-                       standard_answer=answer, status="done", source_type="ai_generated")
-                _db.add(q)
-                await _db.commit()
-        except Exception:
-            shutil.rmtree(folder, ignore_errors=True)
-            raise
-        tags_info = f"（{subject} {grade}）" if subject or grade else ""
-        reply = f"题目已保存到题库{tags_info}。可在题库页查看。"
-        agent_tool_calls_add(sid, "新增题目", {"subject": subject, "grade": grade, "content": content[:100]}, f"题目已保存 #{new_id[:8]}", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "jump_question", "data": {"id": new_id}}, "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 修改题库题目 ======
-    if itype == "edit_question":
-        from models.database import async_session as _db_s
-        from models.models import Question as _Q
-        from datetime import datetime as _dt, timezone as _tz
-        from html import escape as _html_escape
-        question_id = str(idata.get("question_id", "") or "").strip()
-        field = idata.get("field", "")
-        value = str(idata.get("value", "") or "").strip()
-        if not question_id:
-            reply = "确认修改仍缺少完整题目 ID，未执行任何写入。"
-        else:
-            async with _db_s() as _db:
-                q = await _db.get(_Q, question_id)
-                if not q:
-                    reply = f"未找到题目 #{question_id[:12]}。"
-                elif q.is_resolved:
-                    reply = "该题已锁定，请先在题目详情取消锁定。"
-                else:
-                    if field == "answer" or field == "答案":
-                        q.standard_answer = value
-                        q.answer_html = f"<p>{_html_escape(value)}</p>"
-                    elif field == "tags" or field == "标签":
-                        q.knowledge_tags = [t.strip() for t in value.split(",") if t.strip()][:50]
-                    elif field == "subject" or field == "学科":
-                        q.subject = value[:64]
-                    elif field == "grade" or field == "年级":
-                        q.grade = value[:64]
-                    elif field == "content" or field == "内容":
-                        q.ocr_text = value
-                        q.question_html = f"<p>{_html_escape(value)}</p>"
-                    else:
-                        reply = f"不支持的修改字段: {field}。支持的字段: answer/tags/subject/grade/content"
-                        s["messages"] = messages
-                        s["messages"].append({"role": "assistant", "content": reply})
-                        _save(sid, s)
-                        return {"reply": reply, "steps": _final_steps(sid, steps)}
-                    q.updated_at = _dt.now(_tz.utc).replace(tzinfo=None)
-                    await _db.commit()
-                    prev = q.ocr_text[:30] if q.ocr_text else ""
-                    reply = f"题目「{prev}...」的 **{field}** 已更新。"
-                    agent_tool_calls_add(sid, "修改题目", {"question_id": question_id, "field": field, "value": value[:100]}, f"已更新 {field}", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "set_style", "data": {"updated": [field]}}, "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 试卷管理（round 60：Agent 补齐试卷库读写意图，沿用确认闸） ======
-    if itype == "edit_paper":
-        from models.database import async_session as _db_s
-        from models.models import Paper as _P
-        paper_id = str(idata.get("paper_id", "")).strip()
-        field = str(idata.get("field", "")).strip().lower()
-        value = str(idata.get("value", "")).strip()
-        allowed = {"title": "标题", "subject": "学科", "grade": "年级"}
-        if field not in allowed:
-            reply = f"不支持的试卷修改字段: {field or '(空)'}。支持的字段: title/subject/grade"
-            s["messages"] = messages
-            s["messages"].append({"role": "assistant", "content": reply})
-            _save(sid, s)
-            return {"reply": reply, "steps": _final_steps(sid, steps)}
-        async with _db_s() as _db:
-            p = await _db.get(_P, paper_id)
-            if not p:
-                reply = f"试卷不存在: {paper_id}"
-            else:
-                if field == "title":
-                    p.title = value[:200]
-                elif field == "subject":
-                    p.subject = value[:64]
-                elif field == "grade":
-                    p.grade = value[:64]
-                await _db.commit()
-                reply = f"试卷「{p.title}」的 **{allowed[field]}** 已更新为 {value[:60]}。"
-                agent_tool_calls_add(sid, "修改试卷", {"paper_id": paper_id, "field": field, "value": value[:100]}, "已更新", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    if itype == "delete_paper":
-        from models.database import async_session as _db_s
-        from models.models import Paper as _P
-        paper_id = str(idata.get("paper_id", "")).strip()
-        confirm = bool(idata.get("confirm", False))
-        if not confirm:
-            # 与 add_question 同款确认闸：不确认不执行
-            s["messages"] = messages
-            reply = f"即将删除试卷 {paper_id}，其中的题目不会被删除（会回到题库）。请回复「确认删除试卷 {paper_id}」以执行。"
-            s["messages"].append({"role": "assistant", "content": reply})
-            _save(sid, s)
-            return {"reply": reply, "steps": _final_steps(sid, steps),
-                    "action": {"type": "pending_confirmation",
-                               "operation": "delete_paper", "data": {"paper_id": paper_id}}}
-        async with _db_s() as _db:
-            p = await _db.get(_P, paper_id)
-            if not p:
-                reply = f"试卷不存在: {paper_id}"
-            else:
-                title = p.title
-                # 题目不删：只解绑试卷引用（与 DELETE /api/papers/{id} 行为一致）
-                from sqlalchemy import update as _upd
-                from models.models import Question as _Q2
-                qids = list(p.question_ids or [])
-                if qids:
-                    await _db.execute(_upd(_Q2).where(_Q2.id.in_(qids)).values(paper_id=None))
-                await _db.delete(p)
-                await _db.commit()
-                reply = f"试卷「{title}」已删除，{len(qids)} 道题保留在题库。"
-                agent_tool_calls_add(sid, "删除试卷", {"paper_id": paper_id, "title": title[:60]}, "已删除", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 直接生成试卷 ======
-    if itype == "auto_paper":
-        subject = idata.get("subject", "")
-        grade = idata.get("grade", "")
-        ptype = idata.get("type", "custom")
-        topic = idata.get("topic", "")
-        from services.config_service import config_service
-        from models.database import async_session as _db_s
-        from models.models import Question as _Q
-        from sqlalchemy import select as _sel
-        cfg = {"subject": subject, "grade": grade, "paper_type": ptype, "question_count": 5}
-        if topic:
-            cfg["topic"] = topic
-            cfg["knowledge_tags"] = [topic]
-        cid = await config_service.save_paper_config(cfg)
-        async with _db_s() as _db:
-            r = await _db.execute(_sel(_Q.id).where(_Q.status == "done").limit(1))
-            has_q = len(r.fetchall()) > 0
-        if has_q:
-            from services.paper_service import paper_service as _ps
-            try:
-                paper = await _ps.generate_paper(cfg)
-                pid = paper.id
-                reply = f"试卷已经生成：**{subject} {grade} {ptype}**。"
-                action = {"type": "jump_paper", "data": cfg, "saved_config": cid, "paper_id": pid}
-            except Exception as e:
-                logger.warning("auto_paper session generation failed: %s", e)
-                reply = f"参数已就绪（{subject} {grade} {ptype}）。请手动跳转组卷页。"
-                action = {"type": "jump_paper", "data": cfg, "saved_config": cid}
-        else:
-            reply = f"题库暂无可用的题目。请先用OCR导入题目或让我出新题，再生成试卷。"
-            action = {"type": "jump_paper", "data": cfg, "saved_config": cid}
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": action}
-
-    # ====== 需求记录 ======
-    if itype == "need":
-        from services.diagram_service import diagram_service
-        need_desc = idata.get("need", req.message[:60])
-        try:
-            summary_raw = await ai_service.light_task_chat(
-                [{"role": "user", "content": f"用户在对话中说：{req.message}\\n请用20字以内抽象总结用户真正需要的功能或能力，只输出总结。"}],
-                max_tokens=64,
-            )
-            need_desc = summary_raw.strip().strip('"').strip("'")[:80]
-        except Exception as exc:
-            logger.warning("Need summary AI call failed for session %s: %s", sid, exc)
-        diagram_service._note_agent_need(f"会话{sid}: {need_desc}")
-        reply = f"对不起，我暂时还没有「{need_desc}」这个功能。不过我已经记下来了，开发组会尽快处理。请先试试其他功能吧。"
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "action": {"type": "tool_need", "data": {"need": need_desc}}}
-
-    # ====== 题库搜索 ======
-    if itype == "search":
-        from models.database import async_session as _db_session
-        from models.models import Question as _Q
-        from sqlalchemy import select as _select
-        keyword = idata.get("keyword", "")
-        subject = idata.get("subject", "")
-        grade = idata.get("grade", "")
-        try:
-            limit = max(1, min(int(idata.get("limit", 5)), 20))
-        except (TypeError, ValueError):
-            limit = 5
-        async with _db_session() as _db:
-            from sqlalchemy import or_, Text
-            q = _select(_Q).where(_Q.status == "done")
-            if subject:
-                q = q.where(_Q.subject == subject)
-            if grade:
-                q = q.where(_Q.grade == grade)
-            if keyword:
-                q = q.where(or_(
-                    _Q.ocr_text.contains(str(keyword), autoescape=True),
-                    _Q.question_html.contains(str(keyword), autoescape=True),
-                    _Q.knowledge_tags.cast(Text).contains(str(keyword), autoescape=True),
-                ))
-            q = q.order_by(_Q.created_at.desc()).limit(limit)
-            r = await _db.execute(q)
-            found = r.scalars().all()
-        if not found:
-            reply = f"题库中未找到相关题目{'（' + subject + ' ' + grade + '）' if subject or grade else ''}。试试换关键词？"
-        else:
-            lines = [f"找到 {len(found)} 道题："]
-            for i, fq in enumerate(found, 1):
-                tags = ", ".join(fq.knowledge_tags or [])
-                prev = (fq.ocr_text or fq.question_html or "")[:60]
-                lines.append(f"{i}. [{fq.subject}][{fq.grade}] {prev}...（标签: {tags}）")
-            reply = "\n".join(lines)
-            if found:
-                # Store last search results in session for potential follow-up
-                s["_last_search"] = [q.id for q in found]
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 从题库解题并写回 ======
-    if itype == "solve_q":
-        from models.database import async_session as _db_session
-        from models.models import Question as _Q
-        from sqlalchemy import select as _select
-        keyword = idata.get("keyword", "") or idata.get("subject", "")
-        subject = idata.get("subject", "")
-        grade = idata.get("grade", "")
-        async with _db_session() as _db:
-            from sqlalchemy import Text, or_
-            q = _select(_Q).where(
-                _Q.status == "done", _Q.is_resolved.is_(False),
-                or_(_Q.source_type.is_(None), ~_Q.source_type.in_(["search_query", "correction_query"])),
-                or_(_Q.audit_flags.is_(None),
-                    ~_Q.audit_flags.cast(Text).contains("question_challenge_high")),
-            )
-            if keyword:
-                q = q.where(or_(
-                    _Q.ocr_text.contains(str(keyword), autoescape=True),
-                    _Q.question_html.contains(str(keyword), autoescape=True),
-                    _Q.knowledge_tags.cast(Text).contains(str(keyword), autoescape=True),
-                ))
-            if subject:
-                q = q.where(_Q.subject == subject)
-            if grade:
-                q = q.where(_Q.grade == grade)
-            q = q.order_by(_Q.created_at.desc()).limit(3)
-            r = await _db.execute(q)
-            found = r.scalars().all()
-        if not found:
-            reply = "题库中未找到匹配的题目，请用 search 先搜索或提供更具体的信息。"
-        else:
-            replies = []
-            from services.ai_service import ai_service as _ai
-            from services.user_profile import load_profile as _lp
-            from services.diagram_service import diagram_service as _ds
-            _prof = _lp()
-            _st = _prof.get("style_notes", "") or _prof.get("notation_preferences", "")
-            for fq in found:
-                original_diagram_count = len(fq.diagrams or [])
-                info = json.dumps({"id": fq.id, "subject": fq.subject, "grade": fq.grade,
-                                     "ocr_text": fq.ocr_text, "question_html": fq.question_html,
-                                     "knowledge_tags": fq.knowledge_tags}, ensure_ascii=False)
-                if step_callback:
-                    step_callback("题库解题Agent", f"解答 {fq.id[:8]}", "running")
-                # 逐题容错：单题 AI 失败不拖垮整个会话请求（前面题目已各自提交写库）
-                try:
-                    ans = await _ai.deepseek_chat_question(info, req.message, _st, step_callback=step_callback)
-                except Exception as solve_exc:
-                    log_error("sessions.solve_q", f"AI solve failed for {fq.id}: {solve_exc}")
-                    if step_callback:
-                        step_callback("题库解题Agent", f"解答 {fq.id[:8]}", "error")
-                    replies.append(f"**题目 {fq.id[:8]}** AI 解题失败，已跳过（其余题目继续）。")
-                    continue
-                if not (ans or "").strip():
-                    replies.append(f"**题目 {fq.id[:8]}** 解答模型返回空内容，未写入。")
-                    continue
-                if step_callback:
-                    step_callback("题库解题Agent", f"解答 {fq.id[:8]}", "done")
-                agent_tool_calls_add(sid, "解题", {"question_id": fq.id, "subject": fq.subject}, f"已解答并写入", "done")
-                # Generate diagrams in answer
-                if '[[DIAGRAM:' in ans:
-                    for m in __import__('re').finditer(r'\[\[DIAGRAM:([^\]]+)\]\]', ans):
-                        desc = m.group(1)
-                        try:
-                            path = await _ds.generate_diagram(fq.id, desc, len(fq.diagrams or []))
-                            if path:
-                                disk_p = os.path.join(STORAGE_DIR, path.lstrip("/"))
-                                w, _ = _ds._get_svg_size(disk_p)
-                                sz = f' width="{w}"' if w else ""
-                                svg_tag = f'<div class="diagram"><img src="{path}" style="max-width:80%;height:auto"{sz}></div>'
-                                ans = ans.replace(m.group(0), svg_tag, 1)
-                                diags = list(fq.diagrams or [])
-                                diags.append({"path": path, "place": "answer"})
-                                fq.diagrams = diags
-                        except Exception as exc:
-                            logger.warning("Session answer diagram failed for %s: %s", fq.id, exc)
-                            ans = ans.replace(m.group(0), '', 1)
-                # Save the answer back to the question
-                async with _db_session() as _db2:
-                    current = await _db2.get(_Q, fq.id)
-                    if not current or current.is_resolved or current.status != "done":
-                        replies.append(f"**题目 {fq.id[:8]}** 状态已变化，本次解答未写入。")
-                        continue
-                    # 去重：同一会话对同一题只追加一次，整条指令重试不会堆积重复答案
-                    if f"<!-- AGENT_SESSION_{sid} -->" in (current.answer_html or ""):
-                        replies.append(f"**题目 {fq.id[:8]}** 本会话已写入过解答，跳过重复写入。")
-                        continue
-                    current.answer_html = (current.answer_html or "") + f"\n<!-- AGENT_SESSION_{sid} -->\n" + ans
-                    additions = list(fq.diagrams or [])[original_diagram_count:]
-                    if additions:
-                        current_diagrams = list(current.diagrams or [])
-                        existing_paths = {d.get("path") for d in current_diagrams if isinstance(d, dict)}
-                        current_diagrams.extend(
-                            d for d in additions
-                            if isinstance(d, dict) and d.get("path") not in existing_paths
-                        )
-                        current.diagrams = current_diagrams
-                    await _db2.commit()
-                replies.append(f"**题目 {fq.id[:8]}** 已解答并保存。\n\n" + ans)
-            reply = "\n\n---\n\n".join(replies)
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 保存图片到待处理题目 ======
-    if itype == "save_image":
-        b64_img = idata.get("base64_image", "").split(",")[-1] if "," in (idata.get("base64_image", "") or "") else (idata.get("base64_image", "") or "")
-        if not b64_img:
-            reply = "请提供图片数据（base64格式）。"
-        else:
-            from config import QUESTIONS_DIR as _QD
-            import base64 as _b64_mod, binascii as _binascii, os as _os_mod, shutil as _shutil
-            from models.models import gen_id as _gen_id
-            new_id = _gen_id()
-            folder = _os_mod.path.join(_QD, new_id)
-            try:
-                img_bytes = _b64_mod.b64decode(b64_img, validate=True)
-                if not img_bytes or len(img_bytes) > 10 * 1024 * 1024:
-                    raise ValueError("图片为空或超过 10MB")
-                if img_bytes.startswith(b"\xff\xd8\xff"):
-                    ext = ".jpg"
-                elif img_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                    ext = ".png"
-                elif len(img_bytes) >= 12 and img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
-                    ext = ".webp"
-                else:
-                    raise ValueError("图片内容不是有效的 JPG、PNG 或 WEBP")
-                _os_mod.makedirs(folder, exist_ok=False)
-                img_path = _os_mod.path.join(folder, f"original{ext}")
-                with open(img_path, "wb") as _if:
-                    _if.write(img_bytes)
-                    _if.flush()
-                    _os_mod.fsync(_if.fileno())
-            except (_binascii.Error, ValueError, OSError) as _ie:
-                _shutil.rmtree(folder, ignore_errors=True)
-                reply = f"图片保存失败: {str(_ie)[:100]}"
-                s["messages"] = messages
-                s["messages"].append({"role": "assistant", "content": reply})
-                _save(sid, s)
-                return {"reply": reply, "steps": _final_steps(sid, steps)}
-            # Create Question entry
-            from models.database import async_session as _db_s3
-            from models.models import Question as _Q
-            subj = idata.get("subject", "")
-            grd = idata.get("grade", "")
-            from routers.ocr import _run_bg, _save_task_state, _clear_task_state
-            desc = {"question_id": new_id, "type": "process_image", "split_mode": "single",
-                    "user_hint": "", "tags": [], "user_grade": grd, "bank": "default"}
-            try:
-                async with _db_s3() as _db:
-                    q = _Q(id=new_id, folder_path=folder, subject=subj, grade=grd,
-                           raw_image_path=img_path, status="staged", source_type="agent_image")
-                    _db.add(q)
-                    _save_task_state(desc)
-                    await _db.commit()
-            except Exception:
-                _clear_task_state(new_id)
-                _shutil.rmtree(folder, ignore_errors=True)
-                raise
-            from services.ocr_service import ocr_service
-            _run_bg(ocr_service.process_image(new_id, "", [], grd), desc)
-            reply = f"图片已保存到题库（#{new_id[:8]}），已进入OCR处理队列。学科: {subj or '待识别'}"
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps)}
-
-    # ====== 查看笔记列表 ======
-    if itype == "list_notes":
-        from models.database import async_session as _db_s
-        from models.models import Note as _N
-        from sqlalchemy import select as _sel
-        subject_name = idata.get("subject", "")
-        tag_name = idata.get("tag", "")
-        async with _db_s() as _db:
-            from sqlalchemy import Text
-            q = _sel(_N)
-            if subject_name:
-                q = q.where(_N.subject == subject_name)
-            if tag_name:
-                q = q.where(_N.knowledge_tags.cast(Text).contains(str(tag_name), autoescape=True))
-            q = q.order_by(_N.updated_at.desc()).limit(20)
-            r = await _db.execute(q)
-            notes = r.scalars().all()
-        if not notes:
-            reply = f"笔记列表为空。" + (f"（学科: {subject_name}）" if subject_name else "")
-        else:
-            lines = [f"找到 {len(notes)} 篇笔记："]
-            for i, n in enumerate(notes, 1):
-                tags = ", ".join(n.knowledge_tags or [])
-                prev = (n.content or "")[:50].replace("\n", " ")
-                lines.append(f"{i}. [{n.subject or '未分类'}] **{n.title}** - {prev}...（标签: {tags}）")
-            reply = "\n".join(lines)
-            # Store last note search results
-            s["_last_note_search"] = [n.id for n in notes]
-        agent_tool_calls_add(sid, "搜索笔记", {"subject": subject_name, "tag": tag_name}, f"找到 {len(notes)} 篇笔记", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 查看单个笔记 ======
-    if itype == "get_note":
-        from models.database import async_session as _db_s
-        from models.models import Note as _N
-        from sqlalchemy import select as _sel
-        keyword = idata.get("keyword", "")
-        note_id = idata.get("note_id", "")
-        async with _db_s() as _db:
-            n = None
-            if note_id:
-                n = await _db.get(_N, note_id)
-            elif keyword:
-                # LIKE 通配符转义（与 modify_note 一致）：% _ 会改变匹配语义
-                kw_escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                r = await _db.execute(_sel(_N).where(_N.title.contains(kw_escaped, escape="\\")).limit(1))
-                n = r.scalars().first()
-            if not n:
-                # Try last search results
-                last = s.get("_last_note_search", [])
-                if last and not keyword:
-                    n = await _db.get(_N, last[0])
-            if not n:
-                reply = "未找到该笔记。试试搜索笔记列表？"
-            else:
-                tags = ", ".join(n.knowledge_tags or [])
-                reply = f"**{n.title}** [{n.subject or '未分类'}][{n.grade or ''}]\n标签: {tags}\n\n{n.content or '(无内容)'}"
-                agent_tool_calls_add(sid, "查看笔记", {"note_id": n.id, "title": n.title}, f"已查看笔记", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 创建笔记 ======
-    if itype == "create_note":
-        from models.database import async_session as _db_s
-        from models.models import Note as _N
-        title = str(idata.get("title") or "AI创建的笔记")[:200]
-        subject = str(idata.get("subject") or "")[:64]
-        raw_content = idata.get("content", req.message)
-        content = raw_content if isinstance(raw_content, str) else (
-            req.message if not isinstance(raw_content, (int, float, bool)) else str(raw_content)
-        )
-        # 长内容不截断：超过模型整理窗口时原样保存，避免笔记后半段丢失。
-        if len(content) > 20000:
-            structured = content
-        else:
-            try:
-                struct_prompt = (
-                    f"将以下内容整理为结构化笔记（Markdown格式，用##分层）：\n"
-                    f"{content}\n\n"
-                    f"直接输出Markdown，不要额外文字。"
-                )
-                gen_raw = await ai_service.deepseek_chat(
-                    [{"role":"user","content":struct_prompt}], max_tokens=4096,
-                    scope="notes_classify"
-                )
-                structured = gen_raw.strip()
-            except Exception as exc:
-                # AI 整理失败回退原文必须留痕：静默吞错会让 is_structured 标志失真且无从排查
-                logger.warning("AI note structuring failed; keeping raw content: %s", str(exc)[:200])
-                structured = content
-        new_id = uuid.uuid4().hex[:12]
-        async with _db_s() as _db:
-            n = _N(id=new_id, subject=subject, title=title, content=structured,
-                   knowledge_tags=[], is_structured=True, source_type="ai_generated",
-                   auto_generated=False)
-            _db.add(n)
-            await _db.commit()
-        reply = f"笔记 **{title}** 已创建（#{new_id[:8]}）。可在笔记页查看和编辑。"
-        agent_tool_calls_add(sid, "创建笔记", {"title": title, "subject": subject}, f"笔记已创建 #{new_id[:8]}", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 修改笔记 ======
-    if itype == "modify_note":
-        from models.database import async_session as _db_s
-        from models.models import Note as _N
-        from sqlalchemy import select as _sel
-        from datetime import datetime as _dt, timezone as _tz
-        keyword = str(idata.get("keyword", "") or "")[:200]
-        field = idata.get("field", "")
-        value = str(idata.get("value", "") or "").strip()
-        if not keyword:
-            reply = "请告诉我你要修改哪篇笔记？可以提供关键词或标题。"
-        else:
-            async with _db_s() as _db:
-                kw_escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                r = await _db.execute(_sel(_N).where(_N.title.contains(kw_escaped, escape="\\")).limit(1))
-                n = r.scalars().first()
-                if not n:
-                    reply = f"未找到标题包含「{keyword}」的笔记。试试查看笔记列表？"
-                else:
-                    if field in ("content", "内容"):
-                        n.content = value[:500_000]
-                    elif field in ("title", "标题"):
-                        n.title = value[:200]
-                    elif field in ("subject", "学科"):
-                        n.subject = value[:64]
-                    elif field in ("tags", "标签"):
-                        n.knowledge_tags = [t.strip() for t in value.split(",") if t.strip()][:50]
-                    else:
-                        reply = f"不支持的修改字段: {field}。支持: content/title/subject/tags"
-                        s["messages"] = messages
-                        s["messages"].append({"role": "assistant", "content": reply})
-                        _save(sid, s)
-                        return {"reply": reply, "steps": _final_steps(sid, steps)}
-                    n.updated_at = _dt.now(_tz.utc).replace(tzinfo=None)
-                    await _db.commit()
-                    reply = f"笔记「{n.title}」的 **{field}** 已更新。"
-                    agent_tool_calls_add(sid, "修改笔记", {"note_id": n.id, "field": field, "value": str(value)[:100]}, f"已更新 {field}", "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # ====== 查看题目错误信息 ======
-    if itype == "error_info":
-        from models.database import async_session as _db_s4
-        from models.models import Question as _Q2
-        from sqlalchemy import select as _sel2
-        qid = idata.get("question_id", "")
-        async with _db_s4() as _db:
-            if qid:
-                q = await _db.get(_Q2, qid)
-                if not q:
-                    reply = f"未找到题目 #{qid[:8]}"
-                else:
-                    flags = q.audit_flags if hasattr(q, 'audit_flags') and q.audit_flags else []
-                    err_msg = q.error_message or "无错误记录"
-                    flag_str = ""
-                    if isinstance(flags, list) and flags:
-                        flag_items = [f"{f.get('type','')}: {f.get('reason','')}" for f in flags]
-                        flag_str = "\n审计标记: " + "; ".join(flag_items)
-                    prev = (q.ocr_text or q.question_html or "")[:80]
-                    reply = f"题目 #{qid[:8]} [{q.subject}][{q.grade}]\n{prev}...\n状态: {q.status}\n错误: {err_msg}{flag_str}"
-            else:
-                r = await _db.execute(_sel2(_Q2).where(_Q2.status == "error").order_by(_Q2.created_at.desc()).limit(10))
-                errors = r.scalars().all()
-                if not errors:
-                    # Also check for flagged-but-not-error questions
-                    r2 = await _db.execute(
-                        _sel2(_Q2).where(_Q2.status == "done").order_by(_Q2.created_at.desc()).limit(50)
-                    )
-                    flagged = [q for q in r2.scalars().all()
-                               if hasattr(q, 'audit_flags') and q.audit_flags and len(q.audit_flags) > 0]
-                    if not flagged and not errors:
-                        reply = "当前没有标记题目或错误题目。"
-                    else:
-                        all_items = list(errors) + flagged
-                        lines = [f"共 {len(all_items)} 题存在问题："]
-                        for i, eq in enumerate(all_items[:15], 1):
-                            prev = (eq.ocr_text or eq.question_html or "")[:50].replace("\n", " ")
-                            eq_flags = eq.audit_flags if hasattr(eq, 'audit_flags') and eq.audit_flags else []
-                            flag_summary = ""
-                            if isinstance(eq_flags, list) and eq_flags:
-                                flag_summary = " [标记:" + ",".join(f.get('type','?') for f in eq_flags) + "]"
-                            lines.append(f"{i}. #{eq.id[:8]} [{eq.subject}][{eq.grade}] {prev}... - {eq.error_message or eq.status}{flag_summary}")
-                        reply = "\n".join(lines)
-                else:
-                    lines = [f"共 {len(errors)} 道错误题目："]
-                    for i, eq in enumerate(errors, 1):
-                        prev = (eq.ocr_text or eq.question_html or "")[:50].replace("\n", " ")
-                        lines.append(f"{i}. #{eq.id[:8]} [{eq.subject}][{eq.grade}] {prev}... - {eq.error_message or '未知错误'}")
-                    reply = "\n".join(lines)
-        agent_tool_calls_add(sid, "查看错误信息", {"question_id": qid or "all"}, reply[:100], "done")
-        s["messages"] = messages
-        s["messages"].append({"role": "assistant", "content": reply})
-        _save(sid, s)
-        return {"reply": reply, "steps": _final_steps(sid, steps), "tool_calls": agent_tool_calls_get(sid)}
-
-    # chat/solve: use context-aware full model
-    system = (
-        "你是学习搭子AI助手。你有多轮对话上下文，能记住之前说过的内容。\n"
-        "你的能力："
-        "1. 搜索题库(search) 2. 从题库找题解题并写回(solve_q) "
-        "3. 修改/重写题目答案 4. 出变式题 5. 解释概念 "
-        "6. 画几何图（遇到几何/函数/装置题时插入 [[DIAGRAM:详细中文描述图形]] 自动生成示意图，描述要具体：例如 [[DIAGRAM:直角三角形ABC ∠C=90° AC=3 BC=4 标注顶点]]）"
-        "7. 评估答案正确性 8. 推荐组卷参数"
-        "9. 查看/搜索/创建/修改笔记（list_notes/get_note/create_note/modify_note）"
-        "10. 查看题目错误和审计标记（error_info）\n"
-        "【输出格式】使用Markdown：## 小标题 / **粗体** / 1.2.3.有序列表 / $...$数学公式。"
-        "禁止emoji、禁止彩色文字。"
+    # ====== 分发到工具处理器 ======
+    # 原先这里是一段 760 行的 `if itype == "..."` 硬分支链（20 个分支）。
+    # 现在工具的实现都在 services/agent_tools.py，各自登记进 agent_core.REGISTRY；
+    # 本函数只负责：分类意图 -> 查表 -> 组装 Ctx -> 调用处理器。
+    # 加新工具 = 在 agent_tools.py 加一条 Tool + 一个 handler，不再动本文件。
+    ctx = Ctx(
+        sid=sid, req=req, session=s, messages=messages, steps=steps, data=idata,
+        itype=itype, style=style, profile=p, step_callback=step_callback,
+        # guard_deleted：回合进行中若会话被删除，拒绝回写（不复活已删除的会话）
+        save=lambda: _save(sid, s, guard_deleted=True), ai=ai_service,
     )
-    if style: system += f"\n排版偏好：{style}"
-
-    if itype == "solve":
-        system += "\n这是解题任务，请详细推理，用LaTeX写公式。"
-
-    full_messages = [{"role": "system", "content": system}] + messages[-20:]
-
-    # 闲聊与求解统一走配置的 deepseek_model（deepseek_chat 内部读取设置）；
-    # 旧 deepseek-chat / deepseek-v4-pro 分流已失效，deepseek-chat 已被官方下线
-    step_parent = "解题Agent" if itype == "solve" else "对话Agent"
-    if step_callback:
-        step_callback(step_parent, "生成回复", "running")
-    reply = await ai_service.deepseek_chat(
-        full_messages, max_tokens=16384, scope="chat", step_callback=step_callback
-    )
-    if step_callback:
-        step_callback(step_parent, "生成回复", "done")
-
-    # Generate diagrams for [[DIAGRAM:...]] markers in reply
-    if '[[DIAGRAM:' in reply:
-        from services.diagram_service import diagram_service as _ds
-        import re as _re
-        diag_idx = 0
-        base_name = f"chat_{sid}_{int(time.time())}"
-        for m in _re.finditer(r'\[\[DIAGRAM:([^\]]+)\]\]', reply):
-            desc = m.group(1)
-            try:
-                path = await _ds.generate_diagram(base_name, desc, diag_idx)
-                if path:
-                    disk_p = os.path.join(STORAGE_DIR, path.lstrip("/"))
-                    w, _ = _ds._get_svg_size(disk_p)
-                    sz = f' width="{w}"' if w else ""
-                    svg_tag = f'<div class="diagram"><img src="{path}" style="max-width:80%;height:auto"{sz} onerror="this.style.display=\'none\'"></div>'
-                else:
-                    svg_tag = ''
-                reply = reply.replace(m.group(0), svg_tag, 1)
-                diag_idx += 1
-            except Exception as e:
-                log_error("diagram_gen", f"session={sid} desc={desc[:60]} error={e}")
-                reply = reply.replace(m.group(0), '', 1)
-
-    s["messages"] = messages
-    s["messages"].append({"role": "assistant", "content": reply})
-
-    # auto-title on first exchange
-    if len(s["messages"]) == 2:
-        try:
-            title_raw = await ai_service.light_task_chat(
-                [{"role": "user", "content": f"给这段对话起个6字内标题，直接回复标题本身，不要引号不要额外文字：{req.message}"}],
-                max_tokens=32,
-            )
-            title = title_raw.strip().strip('"\'').strip('''\u201c\u201d\u2018\u2019''').strip()[:20]
-            if title:
-                s["title"] = title
-        except Exception as e:
-            logger.debug("Auto-title failed for session %s: %s", sid, e)
-
-    _save(sid, s)
-    return {"reply": reply, "steps": _final_steps(sid, steps), "session": s, "tool_calls": agent_tool_calls_get(sid)}
+    try:
+        return await run_with_timeout(tool, ctx)
+    except asyncio.TimeoutError:
+        log_error("sessions.chat", f"tool {itype} timed out after {tool.timeout}s (sid={sid})")
+        raise HTTPException(status_code=504, detail=f"「{tool.label}」超时（{tool.timeout}秒），请稍后重试")
 
 
 @router.post("/{sid}/chat")
 async def session_chat(sid: str, req: ChatMsg):
     _session_path(sid)
-    lock = _get_session_lock(sid)
+    # 前台回合锁：只串行同一会话的两条前台消息。**不再**用它挡住改名/删除/后台任务。
+    lock = fg_lock(sid)
     async with lock:
         try:
             return await _session_chat_impl(sid, req)
+        except SessionDeletedError:
+            raise HTTPException(409, "该对话已被删除，本轮结果未写入")
         except HTTPException:
             raise
         except Exception as exc:

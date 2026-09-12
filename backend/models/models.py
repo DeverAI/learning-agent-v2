@@ -40,6 +40,8 @@ class Question(Base):
     capture_index = Column(Integer, default=0)
     bank = Column(String, default="default")
     region = Column(String, default="")
+    # 难度分层：基础 / 中档 / 难 / 自招。空串 = 未标。自招分层与组卷按此筛。
+    difficulty = Column(String, default="")
     avg_score = Column(Float, nullable=True)
     user_hint = Column(Text, default="")
     audit_flags = Column(JSON, default=list)  # 审计标记列表
@@ -136,6 +138,62 @@ class ProcessingTask(Base):
     progress = Column(Float, default=0.0)
     result = Column(JSON, default=dict)
     error_message = Column(Text, default="")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class AgentTask(Base):
+    """后台推理任务（双端架构：前台交互端 / 后台推理端，见 Agent双端架构设计.md §7.1）。
+
+    与 ProcessingTask 的区别：ProcessingTask 服务于"题目处理"这一条固定管线；
+    AgentTask 是通用的后台工具执行单元，tool 字段对应 agent_core.TOOLS 里的工具名。
+    状态机：pending -> running -> (done | cancelled | error)，cancelled 保留 partial 可续跑。
+    """
+    __tablename__ = "agent_tasks"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    sid = Column(String, default="", index=True)      # 所属会话
+    tool = Column(String, default="")                  # 工具名，对应 agent_core.TOOLS
+    title = Column(String, default="")                 # 展示名，如「提前备课：宋代经济」
+    params = Column(JSON, default=dict)                # 入参快照
+    status = Column(String, default="pending", index=True)  # pending/running/done/cancelled/error
+    progress = Column(Float, default=0.0)              # 0-100
+    steps = Column(JSON, default=list)                 # 该任务的步骤（parent/child/status/time）
+    output = Column(JSON, default=dict)                # 产出引用（material_id / 文件路径等）
+    partial = Column(JSON, default=dict)               # 取消/失败时的中间态，供续跑
+    cancel_requested = Column(Boolean, default=False)  # 协作式取消标志位
+    error = Column(Text, default="")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class Lesson(Base):
+    """备课产物 = 可编辑课稿（`Agent双端架构设计.md` §8.3「课包 Lesson Pack」）。
+
+    用户 2026-09 的要求原话：「产出可编辑课稿」「任何需要讲解相关内容的 AI 都可以
+    查看、切片、读取」「全自动生成，人决定怎么走」。
+
+    因此本表的设计要点：
+    - **可编辑**：`sections` 是**有序切片列表**，每片能被单独改写（`lesson_service.update_section`），
+      不必整篇重生成；
+    - **可切片读取**：对外契约是 `lesson_service.slice_lesson(...)`，返回带
+      `total_sections` / `truncated` 的**有界**片段 —— 大课稿不会一次性塞满调用方的上下文，
+      也不会悄悄截断不告诉调用方（项目「容量诚实」原则）；
+    - **人决定怎么走**：`status` 只有 draft/final 两态，`origin` 区分自动/人工，
+      自动生成的东西永远先进 draft，等人确认。
+    """
+    __tablename__ = "lessons"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    title = Column(String, default="")
+    subject = Column(String, default="")
+    grade = Column(String, default="")
+    topics = Column(JSON, default=list)                # 知识点标签
+    source_question_ids = Column(JSON, default=list)    # 选材：题目
+    source_paper_id = Column(String, default="")        # 选材：试卷
+    sections = Column(JSON, default=list)               # 有序切片（课稿本体）
+    status = Column(String, default="draft")            # draft / final
+    origin = Column(String, default="auto")             # auto / manual
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 

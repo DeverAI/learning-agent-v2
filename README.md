@@ -213,7 +213,7 @@ python -m pip check
 
 ## 15.1 服务端结构
 
-本项目只包含 WEB 服务端（`backend/` 目录），无桌面端组件：
+WEB 服务端位于 `backend/` 目录，是本项目的主体：
 
 - **启动方式**：`python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000`
 - **访问方式**：浏览器打开 `http://127.0.0.1:8000`
@@ -234,6 +234,16 @@ python -m pip check
 - **App 紧凑模式（省元素）**：WebView UA 追加 `LearningAgentApp/1.1 (Android)` 标记；网页端 base.html 检测 UA 注入 `html.native-app` 类，theme.css §6 提供紧凑规则（压缩卡片/上传区/表格留白、折叠次要说明），上传区文案自动去掉「拖拽」措辞。
 - **重新构建**：需要 JDK 17 与 Android SDK（compileSdk 34），在 `android/` 目录执行 `gradle assembleDebug`。构建机 Gradle 8.2 位于 `C:\Gradle\gradle-8.2`（中文路径下 `gradlew.bat` classpath 解析会失败，可用 `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain assembleDebug` 替代）。
 - **注意**：iOS 用户与手机浏览器用户继续直接访问服务器网址，移动端 Web 适配保持不变（native-app 紧凑规则仅 UA 匹配 App 时生效）；App 内网页密码输入一次后由 WebView localStorage 记住。
+
+## 15.3 桌面端
+
+`desktop/` 目录是**独立副本**的桌面端（PyQt 客户端，信奥/OI 分支为文化课方向），于 2026-09-09 由 `all_projects/学习搭子桌面版`（OISystem）整仓并入，源目录保留不动。
+
+- **与主仓的关系**：代码独立，**`backend/` 与模板/JS 的改动不会自动传导到桌面端**，涉及共享逻辑的改动需单列同步清单。
+- **运行时数据**：`desktop/data/`、`desktop/logs/`、`desktop/config/secrets*.json` 永不入库（见 `.gitignore`）。
+- **产物**：桌面端 zip 经 `/download` 页提供下载，静态文件挂 `/downloads-desktop/`。
+
+> 修正记录（2026-09-11）：本节此前写作「本项目只包含 WEB 服务端，无桌面端组件」，与 `Design.md` §3.2「系统包含 WEB 服务端与桌面端两个组件」及仓库现状**互相矛盾**——桌面端已于 2026-09-09 并入，README 当时未同步。已按现状改写。
 
 ## 16. 文档索引
 

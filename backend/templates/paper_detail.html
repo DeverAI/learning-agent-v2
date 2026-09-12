@@ -128,30 +128,30 @@ function dlCustom(){
   if(!wantsPaper && !wantsScore && !wantsAnswer && !wantsCard){
     $toast('请至少选择一项下载内容','error');return;
   }
-  // 后端只支持单 mode 下载；多选时按以下顺序分别下载
+  // 后端只支持单 mode 下载；多选时按以下顺序打包
   // 试卷 → 答案 → 得分点 → 答题卡，互不冲突；得分点优先于答案展示完整解题过程
   var baseUrl='/api/papers/'+paperId+'/download?fmt='+fmt+'&paper_size='+size;
-  var opens=0;
-  var firstLabel='';
-  if(wantsPaper){
-    window.open(baseUrl+'&mode=paper','_blank');
-    opens++;if(!firstLabel)firstLabel='试卷';
+  var modes=[];
+  if(wantsPaper)modes.push('paper');
+  if(wantsAnswer)modes.push('qa');
+  if(wantsScore)modes.push('score');
+  if(wantsCard)modes.push('answer_card');
+  var labels={paper:'试卷',qa:'标答',score:'得分点',answer_card:'答题卡'};
+  if(modes.length===1){
+    window.open(baseUrl+'&mode='+modes[0],'_blank');
+    return;
   }
-  if(wantsAnswer){
-    window.open(baseUrl+'&mode=qa','_blank');
-    opens++;if(!firstLabel)firstLabel='标答';
-  }
-  if(wantsScore){
-    window.open(baseUrl+'&mode=score','_blank');
-    opens++;if(!firstLabel)firstLabel='得分点';
-  }
-  if(wantsCard){
-    window.open(baseUrl+'&mode=answer_card','_blank');
-    opens++;if(!firstLabel)firstLabel='答题卡';
-  }
-  if(opens>1){
-    $toast('已为您分 '+opens+' 个文件下载（'+firstLabel+' 等）','ok');
-  }
+  // 多选：改为**单次打包下载**（FUTURE.md 优化方向）。
+  // 原实现在同一次点击里同步开多个 window.open，浏览器只放行第一个、其余被静默拦截，
+  // 提示却写「已为您分 N 个文件下载」——用户只拿到 1 份却被告知成功。
+  // 现在一次请求返回一个 zip，只触发一次下载。用 <a download> 点击比 window.open
+  // 更不容易被弹窗策略拦。
+  var a=document.createElement('a');
+  a.href='/api/papers/'+encodeURIComponent(paperId)+'/download-bundle?fmt='+encodeURIComponent(fmt)
+       +'&paper_size='+encodeURIComponent(size)+'&modes='+modes.join(',');
+  a.rel='noopener';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  $toast('已打包为 1 个压缩包下载（共 '+modes.length+' 份：'+modes.map(function(m){return labels[m]}).join('/')+'）','ok');
 }
 
 async function regenerate(btn){
@@ -164,8 +164,10 @@ async function regenerate(btn){
 }
 
 function copyParams(){
-  navigator.clipboard.writeText(JSON.stringify(paper?paper.generation_params||{}:{},null,2));
-  $toast('参数已复制','ok');
+  // R24：改走全局 $copyText（http 下 navigator.clipboard 不存在；原写法会同步抛错）
+  var txt=JSON.stringify(paper?paper.generation_params||{}:{},null,2);
+  if(window.$copyText){ window.$copyText(txt,'参数已复制'); return; }
+  $toast('当前环境不支持自动复制','error');
 }
 
 document.addEventListener('DOMContentLoaded', function(){ init(); });

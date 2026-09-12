@@ -121,10 +121,29 @@ def test_comparison_regions_sanitization():
 
 
 def test_svg_sanitizer_inline_style():
-    bad = '<svg><rect style="background-image:url(javascript:alert(1))" fill="red"/></svg>'
+    """内联 style 里的**危险构造**必须剔除，但**安全的笔画属性要保留**。
+
+    ⚠️ 这条断言的旧版本是 `assert "style" not in clean` —— 它把"把 style 整条删掉"
+    当成了正确行为，**等于用一个测试钉死了另一个 bug**：
+    坐标推理 / 折线示意这两条路径产出的线段与圆，笔画**只写在 style 里**
+    （`style="stroke:#333;stroke-width:2;fill:none"`），整条删掉后落盘变成
+    `<line ... />`，等价于 `stroke:none` —— **线完全不显示**，
+    学生看到白底上一堆字母数字，而接口/DB/前端全报成功（2026-09-12 实测确认）。
+
+    现在按**意图**断言：危险的去掉、安全的留下。
+    """
+    bad = (
+        '<svg>'
+        '<rect style="background-image:url(javascript:alert(1));fill:red" fill="red"/>'
+        '<line x1="0" y1="0" x2="1" y2="1" style="stroke:#333;stroke-width:2;fill:none"/>'
+        '</svg>'
+    )
     clean = diagram_service._sanitize_svg(bad)
-    assert "style" not in clean, clean
     assert "javascript" not in clean, clean
+    assert "background-image" not in clean, clean
+    # 安全属性必须留下，否则图上的线会消失
+    assert "stroke:#333" in clean, clean
+    assert "fill:red" in clean, clean
 
 
 def test_svg_sanitizer_use_bypass():

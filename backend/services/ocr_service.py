@@ -174,6 +174,11 @@ class OCRService:
         async with lock:
             logger.info("Acquired OCR lock for question %s", question_id)
             task_id = None
+            # 记录识别过程中**降级**的图片（某张图 OCR 失败、被 except 跳过）。
+            # 之前这些失败只在日志里，题目照样可能判成 done —— 用户看到的是
+            # "识别完成"，实际题干或手写作答缺了一块。这里收集起来，在终态写库时落成
+            # audit_flags，让"内容可能不完整"这件事对用户可见。
+            ocr_failures: list[str] = []
             async with async_session() as db:
                 q = await db.get(Question, question_id)
                 if not q:
@@ -249,6 +254,9 @@ class OCRService:
                                 question_results.append(await _ocr_one(img))
                             except Exception as _ocr_e:
                                 logger.warning("OCR failed for question image %s: %s", img.get("path"), _ocr_e)
+                                ocr_failures.append(
+                                    f"{os.path.basename(str(img.get('path') or '?'))}"
+                                    f"（题干图：{type(_ocr_e).__name__}）")
 
                         ocr_text = "\n\n".join(
                             r.get("ocr_text", "") for r in question_results if r.get("ocr_text")
@@ -283,6 +291,9 @@ class OCRService:
                                     aux_reference_texts.append(f"[{img.get('role', 'aux')} 示意图描述]: {res['diagram_description']}")
                             except Exception as _ocr_e:
                                 logger.warning("OCR failed for aux image %s: %s", img.get("path"), _ocr_e)
+                                ocr_failures.append(
+                                    f"{os.path.basename(str(img.get('path') or '?'))}"
+                                    f"（{img.get('role', 'aux')} 图：{type(_ocr_e).__name__}）")
                         source_reference_parts.extend(aux_reference_texts)
                         source_reference_text = "\n\n".join(source_reference_parts)
 
@@ -840,6 +851,22 @@ class OCRService:
                             logger.error("Question %s marked error: answer or standard answer is incomplete", question_id)
                         else:
                             q.status = "done"
+                            # 识别有降级但内容仍然完整到可用 -> 判 done，但**必须留痕**，
+                            # 否则用户看到的"已完成"掩盖了"有一张图没认出来"。
+                            if ocr_failures:
+                                flags = q.audit_flags if isinstance(q.audit_flags, list) else []
+                                if not any(isinstance(f, dict) and f.get("type") == "ocr_partial_failure"
+                                           for f in flags):
+                                    flags.append({
+                                        "type": "ocr_partial_failure",
+                                        "reason": ("以下图片识别失败，题干或参考答案可能不完整："
+                                                   + "；".join(ocr_failures[:5]))[:600],
+                                        "auto": True,
+                                        "created_at": _utcnow().isoformat(),
+                                    })
+                                    q.audit_flags = flags
+                                logger.warning("Question %s done with %d failed image(s): %s",
+                                               question_id, len(ocr_failures), ocr_failures[:5])
                         q.updated_at = _utcnow()
                         await db.commit()
 

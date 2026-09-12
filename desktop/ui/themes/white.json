@@ -1,0 +1,23 @@
+{
+  "name": "纯白",
+  "bg": "#ffffff",
+  "surface": "#f8fafc",
+  "text": "#1e293b",
+  "text_dim": "#94a3b8",
+  "accent": "#2563eb",
+  "accent_hover": "#1d4ed8",
+  "border": "#e2e8f0",
+  "border_light": "#f1f5f9",
+  "bubble_user_bg": "rgba(37, 99, 235, 12)",
+  "bubble_ai_bg": "#f1f5f9",
+  "scrollbar_handle": "#cbd5e1",
+  "scrollbar_hover": "#94a3b8",
+  "input_bg": "#ffffff",
+  "input_border": "#e2e8f0",
+  "input_focus": "#2563eb",
+  "code_bg": "#f1f5f9",
+  "danger": "#dc2626",
+  "danger_hover": "#b91c1c",
+  "success": "#16a34a",
+  "warning": "#d97706"
+}

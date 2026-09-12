@@ -121,7 +121,8 @@ with TestClient(app_main.app, headers={"X-Auth-Token": "Ntmhzsgtc"}) as client:
 print("OK")
 """
     result = subprocess.run([sys.executable, "-c", script], capture_output=True,
-                            text=True, cwd=os.path.dirname(os.path.abspath(__file__)), timeout=180)
+                            text=True, encoding="utf-8", errors="replace",
+                            cwd=os.path.dirname(os.path.abspath(__file__)), timeout=180)
     assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr[-800:]}"
 
 

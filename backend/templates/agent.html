@@ -150,11 +150,14 @@ function sendAgent(btn){
   }
   sendAgentText(m,btn);
 }
-function sendAgentText(m,btn){
+function sendAgentText(m,btn,opts){
   var c=document.getElementById('agentMsgs');
   var inp=document.getElementById('agentInput');
-  var ud=document.createElement('div');ud.className='agent-msg-user';
-  ud.textContent='[User] '+m;c.appendChild(ud);
+  // recall=true：系统召回消息，不渲染 [User] 气泡（召回芯片已由调用方画出）
+  if(!(opts&&opts.recall)){
+    var ud=document.createElement('div');ud.className='agent-msg-user';
+    ud.textContent='[User] '+m;c.appendChild(ud);
+  }
   var ld=document.createElement('div');ld.innerHTML='<span class="spin"></span>';c.appendChild(ld);
   inp.value='';
   inp.disabled=true;
@@ -172,6 +175,7 @@ function sendAgentText(m,btn){
     var md=document.createElement('div');md.style.cssText='font-size:13px';
     ad.appendChild(md);c.appendChild(ad);
     $md(r.reply, md);
+    renderRichAction(r.action,c);
     if(r.action&&r.action.type==='jump_paper'){
       var d=r.action.data||{};var sc=r.action.saved_config||'';
       var card=document.createElement('div');
@@ -271,6 +275,326 @@ function autoRenameCurrent(btn){
   }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
 }
 
+// ===== 结构化动作卡片渲染（2026-09-11 R11 新增）=====
+// 后端新增 4 个内容工具后，它们各自在 r.action.data 里给出了结构化结果。
+// 把状态做成色块、把来源做成可点链接，比让用户从一大段 Markdown 里找要直观。
+// 设计约束：不用 emoji、不用箭头符号；所有颜色一律走 CSS 变量（浅色/深色主题各自生效）。
+function _chipColor(status){
+  var map={
+    ok:       {c:'var(--ok)',    b:'var(--ok-bg)',   t:'已取到'},
+    no_match: {c:'var(--text3)', b:'var(--bg)',      t:'无匹配'},
+    empty:    {c:'var(--warn)',  b:'var(--warn-bg)', t:'来源为空'},
+    error:    {c:'var(--err)',   b:'var(--err-bg)',  t:'检索失败'}
+  };
+  return map[status]||map.no_match;
+}
+function _safeUrl(u){
+  u=String(u==null?'':u);
+  return /^https?:\/\//i.test(u)?u:'';
+}
+function _card(container, okBorder){
+  var w=document.createElement('div');
+  w.style.cssText='margin:8px 0;padding:10px;border:1px solid '+(okBorder?'var(--border)':'var(--err)')+
+    ';border-radius:8px;background:'+(okBorder?'var(--card-bg)':'var(--err-bg)');
+  container.appendChild(w);
+  return w;
+}
+function _cardTitle(w, text, color){
+  var h=document.createElement('div');
+  h.style.cssText='font-size:12px;margin-bottom:6px;color:'+(color||'var(--text2)');
+  h.textContent=text;
+  w.appendChild(h);
+  return h;
+}
+function renderRichAction(action, container){
+  if(!action||!action.type)return;
+  var t=action.type, d=action.data||{}, i, s, it, w, row, chip;
+
+  if(t==='related_content'){
+    w=_card(container,true);
+    _cardTitle(w,'内容来源状态（主题：'+(d.topic||'')+'）');
+    row=document.createElement('div');
+    row.style.cssText='display:flex;flex-wrap:wrap;gap:6px';
+    (d.sources||[]).forEach(function(src){
+      var m=_chipColor(src.status);
+      chip=document.createElement('div');
+      chip.style.cssText='display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;'+
+        'font-size:12px;border:1px solid '+m.c+';background:'+m.b+';color:'+m.c;
+      chip.innerHTML='<b>'+$esc(src.label)+'</b><span>'+m.t+(src.status==='ok'?' '+src.count:'')+'</span>';
+      if(src.note)chip.title=src.note;
+      row.appendChild(chip);
+    });
+    w.appendChild(row);
+    (d.sources||[]).forEach(function(src){
+      if(src.status!=='ok'||!(src.items||[]).length)return;
+      var det=document.createElement('details');
+      det.style.cssText='margin-top:6px;font-size:12px';
+      var sm=document.createElement('summary');
+      sm.style.cssText='cursor:pointer;color:var(--accent)';
+      sm.textContent=src.label+' 明细（'+src.count+'）';
+      det.appendChild(sm);
+      (src.items||[]).forEach(function(one){
+        var li=document.createElement('div');
+        li.style.cssText='padding:3px 0 3px 12px;color:var(--text2)';
+        li.textContent=one.text+(one.meta?'（'+one.meta+'）':'');
+        det.appendChild(li);
+      });
+      w.appendChild(det);
+    });
+    return;
+  }
+
+  if(t==='web_search'){
+    w=_card(container,!!d.ok);
+    if(!d.ok){
+      _cardTitle(w,'联网检索未成功：'+(d.error||'未知原因'),'var(--err)');
+      return;
+    }
+    _cardTitle(w,'联网检索命中 '+(d.results||[]).length+' 条网页（下方为原始来源）');
+    (d.results||[]).forEach(function(rs,i2){
+      var li=document.createElement('div');
+      li.style.cssText='font-size:12px;padding:3px 0;color:var(--text2)';
+      var url=_safeUrl(rs.link);
+      var inner=url?('<a href="'+$esc(url)+'" target="_blank" rel="noopener noreferrer">'+
+                     $esc(rs.title||url)+'</a>'):$esc(rs.title||'');
+      li.innerHTML=(i2+1)+'. '+inner;
+      w.appendChild(li);
+    });
+    return;
+  }
+
+  if(t==='knowledge_lookup'){
+    w=_card(container,true);
+    if(d.empty){
+      _cardTitle(w,'知识点图谱为空：不是「没查到」，是图谱里还没有任何节点','var(--warn)');
+      return;
+    }
+    var matched=d.matched||[];
+    _cardTitle(w,'匹配知识点 '+(d.query?('「'+d.query+'」'):'')+'：'+matched.length+' 个');
+    row=document.createElement('div');
+    row.style.cssText='display:flex;flex-wrap:wrap;gap:6px';
+    matched.forEach(function(n){
+      chip=document.createElement('div');
+      chip.style.cssText='padding:4px 8px;border-radius:4px;font-size:12px;'+
+        'border:1px solid var(--border);background:var(--accent-soft);color:var(--text)';
+      chip.textContent=n.label+(n.type?'（'+n.type+'）':'');
+      row.appendChild(chip);
+    });
+    w.appendChild(row);
+    return;
+  }
+
+  if(t==='agent_task'){
+    renderAgentTaskCard(d, container);
+    return;
+  }
+
+  if(t==='lessons_list'){
+    var ls=(d.lessons||[]);
+    w=_card(container,true);
+    if(!ls.length){
+      _cardTitle(w,'还没有任何课稿','var(--text3)');
+      return;
+    }
+    _cardTitle(w,'课稿（共 '+(d.total||ls.length)+' 份）· <a href="/lessons" style="color:var(--accent)">打开课稿页</a>');
+    ls.forEach(function(L){
+      var row=document.createElement('div');
+      row.style.cssText='font-size:12px;padding:4px 0;color:var(--text2)';
+      var done=L.filled_sections||0, tot=L.total_sections||0;
+      var st=(L.status==='final')?'已定稿':'草稿';
+      var a=document.createElement('a');
+      a.href='/lessons?lesson='+encodeURIComponent(L.lesson_id||'');
+      a.style.cssText='color:var(--accent);text-decoration:none';
+      a.textContent=(L.title||'未命名');
+      row.appendChild(a);
+      row.appendChild(document.createTextNode(
+        ' ['+(L.subject||'未分类')+' '+(L.grade||'')+'] '
+        +done+'/'+tot+' 片  '+st
+      ));
+      w.appendChild(row);
+    });
+    return;
+  }
+
+  if(t==='recall_memory'){
+    w=_card(container,!!d.ok);
+    if(!d.ok){
+      _cardTitle(w,'学习记忆读取失败：'+(d.error||'未知原因'),'var(--err)');
+      return;
+    }
+    var topics=d.topics||{};
+    var keys=Object.keys(topics);
+    if(!keys.length){
+      _cardTitle(w,'学习记忆为空：还没有产生过学习数据','var(--warn)');
+      return;
+    }
+    _cardTitle(w,'各主题掌握度（已按遗忘曲线衰减，是估计值不是实测分）');
+    keys.forEach(function(k){
+      var v=topics[k]||{};
+      var pct=Math.max(0,Math.min(100,Math.round((Number(v.mastery)||0)*100)));
+      var line=document.createElement('div');
+      line.style.cssText='font-size:12px;margin-top:5px';
+      var bar=document.createElement('div');
+      bar.style.cssText='height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:2px';
+      var fill=document.createElement('div');
+      fill.style.cssText='height:100%;width:'+pct+'%;background:var(--accent)';
+      bar.appendChild(fill);
+      line.textContent=k+' '+pct+'%';
+      w.appendChild(line);
+      w.appendChild(bar);
+      var wp=(v.weak_points||[]);
+      if(wp.length){
+        var wl=document.createElement('div');
+        wl.style.cssText='font-size:11px;color:var(--warn);margin-top:2px';
+        wl.textContent='薄弱点：'+wp.join('、');
+        w.appendChild(wl);
+      }
+    });
+    return;
+  }
+}
+
+// ===== 后台任务卡片（P5：双线展示）=====
+// 前台不等后台：任务起来之后这里给出可观测的进度、可取消、可续跑。
+// 取消是**协作式**的，卡片上照实说明"最多等 N 秒"，不让用户以为点了立刻停。
+var _agentTaskTimers = {};
+
+function stopAgentTaskPoll(taskId){
+  if(_agentTaskTimers[taskId]){
+    clearInterval(_agentTaskTimers[taskId]);
+    delete _agentTaskTimers[taskId];
+  }
+}
+
+function startAgentTaskPoll(taskId, paint){
+  if(_agentTaskTimers[taskId])return;
+  _agentTaskTimers[taskId]=setInterval(function(){
+    window.$API.get('/api/agent-tasks/'+encodeURIComponent(taskId)).then(function(s){
+      paint(s);
+      if(s.status!=='pending'&&s.status!=='running')stopAgentTaskPoll(taskId);
+    }).catch(function(){
+      // 查不到就停轮询，避免无意义的持续请求；卡片保留最后一次已知状态
+      stopAgentTaskPoll(taskId);
+    });
+  },3000);
+}
+
+// ===== 任务完成自动召回（R23）=====
+// 「工具执行完毕召回 Agent 继续工作」的落点：任务卡片轮询到 done 后，
+// 自动向当前会话发送一条 [系统召回] 消息（后端确定性旁路到 task_recall 工具），
+// Agent 读取任务真实产出接着讲。每任务只召回一次；卡片属于其他会话时不召回。
+var _agentRecalled = {};
+function maybeRecallTask(s){
+  if(!s || !s.task_id || !s.sid) return;
+  if(s.status !== 'done') return;
+  if(_agentRecalled[s.task_id]) return;
+  if(!_currentId || s.sid !== _currentId) return;   // 卡片属于别的会话：不召回
+  _agentRecalled[s.task_id] = true;
+  recallAgentTask(s);
+}
+function recallAgentTask(s){
+  var c=document.getElementById('agentMsgs');
+  if(!c) return;
+  var chip=document.createElement('div');
+  chip.className='status-ok';
+  chip.style.cssText='display:flex;align-items:center;gap:8px;margin:8px 0;padding:8px 10px;border-radius:8px;font-size:13px';
+  chip.innerHTML='<b>召回</b><span>后台任务「'+$esc(s.title||'')+'」已完成 → Agent 已被召回继续讲解…</span>';
+  c.appendChild(chip);
+  c.scrollTop=c.scrollHeight;
+  sendAgentText('[系统召回] 后台任务已完成，task_id='+s.task_id+'，请读取结果并继续讲解。', null, {recall:true});
+}
+
+function renderAgentTaskCard(t, container){
+  if(!t||!t.task_id)return;
+  var w=_card(container,true);
+  var STATUS_CN={pending:'排队中',running:'进行中',done:'已完成',
+                 cancelled:'已取消',error:'出错'};
+  var head=document.createElement('div');
+  head.style.cssText='font-size:13px;font-weight:600';
+  head.textContent='后台任务：'+(t.title||'未命名');
+  w.appendChild(head);
+
+  var info=document.createElement('div');
+  info.style.cssText='font-size:12px;color:var(--text2);margin-top:4px';
+  w.appendChild(info);
+
+  var barOuter=document.createElement('div');
+  barOuter.style.cssText='height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:6px';
+  var barInner=document.createElement('div');
+  barInner.style.cssText='height:100%;width:0%;background:var(--accent)';
+  barOuter.appendChild(barInner);
+  w.appendChild(barOuter);
+
+  var steps=document.createElement('div');
+  steps.style.cssText='font-size:11px;color:var(--text3);margin-top:6px;max-height:120px;overflow:auto';
+  w.appendChild(steps);
+
+  var btns=document.createElement('div');
+  btns.style.cssText='margin-top:8px;display:flex;gap:8px;align-items:center';
+  w.appendChild(btns);
+
+  var hint=document.createElement('div');
+  hint.style.cssText='font-size:11px;color:var(--text3);margin-top:6px';
+  w.appendChild(hint);
+
+  function paint(s){
+    if(!s)return;
+    var st=STATUS_CN[s.status]||s.status;
+    info.textContent='状态：'+st+'　进度：'+Math.round(s.progress||0)+'%'
+      +((s.error)?'　（'+s.error+'）':'');
+    barInner.style.width=Math.max(0,Math.min(100,Math.round(s.progress||0)))+'%';
+    var list=(s.steps||[]).slice(-6).map(function(x){
+      return (x.time?x.time+' ':'')+(x.child||'');
+    });
+    steps.textContent=list.join('\n');
+    btns.innerHTML='';
+    if(s.status==='pending'||s.status==='running'){
+      var cb=document.createElement('button');
+      cb.className='btn btn-sm';
+      cb.textContent='取消';
+      cb.onclick=function(){
+        cb.disabled=true;
+        window.$API.post('/api/agent-tasks/'+encodeURIComponent(s.task_id)+'/cancel',{}).then(function(r){
+          hint.textContent=(r&&r.note)?r.note:'已请求取消。';
+          cb.disabled=false;
+        }).catch(function(e){
+          hint.textContent='取消失败：'+(e&&e.message?e.message:'未知错误');
+          cb.disabled=false;
+        });
+      };
+      btns.appendChild(cb);
+      hint.textContent='取消是协作式的：会在下一个检查点停下，已写好的内容会保留。';
+    } else if(s.status==='cancelled'||s.status==='error'){
+      var rb=document.createElement('button');
+      rb.className='btn btn-sm btn-primary';
+      rb.textContent='接着做';
+      rb.onclick=function(){
+        rb.disabled=true;
+        window.$API.post('/api/agent-tasks/'+encodeURIComponent(s.task_id)+'/resume',{}).then(function(r){
+          if(r&&r.ok){
+            hint.textContent=r.note||'已重新入队。';
+            startAgentTaskPoll(s.task_id,paint);
+          }else{
+            hint.textContent=(r&&r.reason)?r.reason:'续跑失败。';
+          }
+          rb.disabled=false;
+        }).catch(function(e){
+          hint.textContent='续跑失败：'+(e&&e.message?e.message:'未知错误');
+          rb.disabled=false;
+        });
+      };
+      btns.appendChild(rb);
+      hint.textContent='已完成的部分不会重做。';
+    } else if(s.status==='done'){
+      hint.textContent='任务已完成。';
+      maybeRecallTask(s);
+    }
+  }
+
+  paint(t);
+  if(t.status==='pending'||t.status==='running')startAgentTaskPoll(t.task_id, paint);
+}
+
 function showSteps(steps){
   var box=document.getElementById('agentSteps');
   var body=document.getElementById('agentStepsBody');
@@ -344,7 +668,7 @@ function showToolCalls(toolCalls){
     item.className='agent-tc-item';
     var header=document.createElement('div');
     header.className='agent-tc-header';
-    var icon=document.createElement('div');icon.className='agent-tc-icon';icon.textContent='⚡';
+    var icon=document.createElement('div');icon.className='agent-tc-icon';icon.textContent='工';
     var name=document.createElement('div');name.className='agent-tc-name';name.textContent=tc.name||'工具';
     var status=document.createElement('span');status.className='agent-tc-status '+(tc.status||'done');
     status.textContent=tc.status==='error'?'失败':'完成';

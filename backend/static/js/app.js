@@ -98,7 +98,9 @@ function toggleMenu(id){
 
 // ===== API 封装 =====
 window.$API = {
-  _authToken: "Ntmhzsgtc",
+  // R23：token 先读 localStorage（la_auth_token），401 时会提示补输并回存。
+  // 硬编码默认值只作为「鉴权未启用/仍为默认密码」时的兜底，不再是唯一来源。
+  _authToken: (function(){try{return localStorage.getItem('la_auth_token')||"Ntmhzsgtc"}catch(e){return "Ntmhzsgtc"}})(),
   _friendlyStatus: function(status, rawText){
     // 将 HTTP 状态码映射为更友好的中文提示，避免英文透出
     if(status===0 || /Failed to fetch|NetworkError|net::ERR/i.test(rawText||'')) return '网络异常，请检查连接';
@@ -121,13 +123,19 @@ window.$API = {
           else if(d.detail&&typeof d.detail==='object')detail=d.detail.message||JSON.stringify(d.detail);
           else detail=d.message||'';
         }catch(e){}
+        // R23：401 → 打 needAuth 标记，由 _request 统一走「补密码→重试一次」
+        if(r.status===401){
+          var authErr=new Error(detail||'需要访问密码');
+          authErr.needAuth=true;
+          throw authErr;
+        }
         if(detail) throw new Error(detail);
         throw new Error(window.$API._friendlyStatus(r.status, t)+' '+(t||'').slice(0,80));
       });
     }
     if(type==='json')return r.json();return r.text()
   },
-  _request: function(u,opts,type){
+  _request: function(u,opts,type,_retried){
     window.dispatchEvent(new CustomEvent('ux:request',{detail:{active:true,url:u}}));
     opts = opts || {};
     opts.headers = opts.headers || {};
@@ -148,7 +156,32 @@ window.$API = {
     var p = (window._offline && typeof window._offline.handle === 'function')
       ? window._offline.handle(u, opts, type, doFetchRaw, doParse)
       : doFetchRaw().then(doParse);
-    return p.finally(function(){window.dispatchEvent(new CustomEvent('ux:request',{detail:{active:false,url:u}}))});
+    var out = p.catch(function(err){
+      // R23：密码中间件在端点执行**之前**拦截，401 说明业务代码没跑，
+      // 补密后重试不会造成重复提交。每个请求只重试一次，防死循环。
+      if(err && err.needAuth && !_retried){
+        return window.$API._reauth().then(function(){
+          return window.$API._request(u,opts,type,true);
+        });
+      }
+      throw err;
+    });
+    return out.finally(function(){window.dispatchEvent(new CustomEvent('ux:request',{detail:{active:false,url:u}}))});
+  },
+  // R23：密码补输（Promise 去重：并发 401 只弹一次窗）。
+  _reauth: function(){
+    if(window.$API._reauthPromise) return window.$API._reauthPromise;
+    window.$API._reauthPromise = $prompt('请输入访问密码（服务器设置了 api_password；输入一次后本机记住）',{title:'需要密码'})
+      .then(function(v){
+        window.$API._reauthPromise=null;
+        var s=String(v==null?'':v).trim();
+        if(!s) throw new Error('未输入密码，无法继续');
+        try{localStorage.setItem('la_auth_token',s)}catch(e){}
+        window.$API._authToken=s;
+        return s;
+      })
+      .catch(function(e){ window.$API._reauthPromise=null; throw e; });
+    return window.$API._reauthPromise;
   },
   get: function(u){return window.$API._request(u,{},'json')},
   post: function(u,d){return window.$API._request(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)},'json')},
@@ -345,10 +378,28 @@ function $md(t,e){
     h=_sanitizeHtml(h);
     e.innerHTML=h;
     // Render Mermaid
-    if(typeof mermaid!=='undefined'){
+    // 沿用本函数下方 KaTeX 的同款重试写法（maxTries + setTimeout）：mermaid 是唯一的
+    // CDN 依赖，改成 async 后可能晚于 DOMContentLoaded 到位，一次性 typeof 判断会**直接
+    // 漏渲染**且不留痕迹。首次进入先补一次 initialize（含 startOnLoad:false），
+    // 避免 mermaid 自身按默认 startOnLoad 自动跑一遍造成重复渲染。
+    (function _mq(){
       var mn=e.querySelectorAll('.mermaid');
-      if(mn.length){mermaid.run({nodes:Array.from(mn)}).catch(function(ex){console.warn('mermaid render fail',ex)})}
-    }
+      if(!mn.length) return;
+      if(typeof mermaid!=='undefined'){
+        if(!_mq._inited){
+          _mq._inited=true;
+          try{
+            mermaid.initialize({startOnLoad:false,
+              theme:(document.documentElement.getAttribute('data-theme')==='dark')?'dark':'default'});
+          }catch(ex){console.warn('mermaid init fail',ex)}
+        }
+        mermaid.run({nodes:Array.from(mn)}).catch(function(ex){console.warn('mermaid render fail',ex)});
+        return;
+      }
+      _mq._n=(_mq._n||0)+1;
+      if(_mq._n<=60) setTimeout(_mq,100);
+      else console.warn('mermaid 未在预期时间内加载，图表跳过渲染');
+    })();
     // KaTeX rendering
     var tries=0, maxTries=60, hasRaw=function(d){return /\$(?!\()/.test(d.innerHTML)};
     function _km(){
@@ -439,8 +490,45 @@ var typeTag = $type;
 // ===== 文本与 JSON 工具函数 =====
 function _stripHtmlAndMd(t){return t.replace(/<[^>]*>/g,'').replace(/[#*_~`>\[\]()!-]/g,'').replace(/\n{3,}/g,'\n\n').trim()}
 function _tryParseJson(t){try{var o=JSON.parse(t);if(o&&typeof o==='object')return o}catch(e){}return null}
-window.copyMD=function(t){navigator.clipboard.writeText(t).then(function(){$toast('MD已复制','ok')}).catch(function(){$toast('复制失败','error')})};
-window.copyPlain=function(t){navigator.clipboard.writeText(_stripHtmlAndMd(t)).then(function(){$toast('纯文本已复制','ok')}).catch(function(){$toast('复制失败','error')})};
+// ===== 剪贴板（R24）=====
+// navigator.clipboard **只在安全上下文**（https / localhost）存在；本项目生产是
+// http://<IP>:8000，因此 navigator.clipboard 是 undefined。原先的写法
+//   navigator.clipboard.writeText(...).then(...).catch(...)
+// 会在**取属性那一步同步抛 TypeError** —— 连 .catch 都进不去，按钮表现为"点了没反应"，
+// 而这类失败在 127.0.0.1 本地开发时**永远不会复现**（localhost 是安全上下文）。
+// 统一入口：优先 Clipboard API，回退 textarea + execCommand('copy')。
+function _legacyCopyText(s){
+  var ta=document.createElement('textarea');
+  ta.value=s;
+  ta.setAttribute('readonly','');
+  ta.style.cssText='position:fixed;top:-1000px;left:-1000px;opacity:0';
+  document.body.appendChild(ta);
+  var ok=false;
+  try{
+    ta.select();
+    ta.setSelectionRange(0,ta.value.length);
+    ok=document.execCommand('copy');
+  }catch(e){ok=false}
+  try{document.body.removeChild(ta)}catch(e){}
+  return ok;
+}
+window.$copyText=function(text,okMsg){
+  var s=String(text==null?'':text);
+  var ok='ok'===okMsg?okMsg:(okMsg||'已复制');
+  var fallback=function(){
+    var fine=_legacyCopyText(s);
+    $toast(fine?ok:'复制失败（浏览器不允许自动复制，请手动选中后复制）',fine?'ok':'error');
+    return fine;
+  };
+  try{
+    if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){
+      return navigator.clipboard.writeText(s).then(function(){$toast(ok,'ok');return true}).catch(fallback);
+    }
+  }catch(e){/* 非安全上下文取属性即抛：直接走回退 */}
+  return Promise.resolve(fallback());
+};
+window.copyMD=function(t){return window.$copyText(t,'MD已复制')};
+window.copyPlain=function(t){return window.$copyText(_stripHtmlAndMd(t),'纯文本已复制')};
 
 // ===== 撤销/回收站系统 =====
 var UNDO_KEY='study_buddy_undo';

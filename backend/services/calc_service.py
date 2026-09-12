@@ -23,6 +23,12 @@ MAX_POWER_EXP_ABS = 1000          # 幂运算指数绝对值上限
 MAX_POWER_DIGITS = 10000          # 幂运算结果十进制位数上限
 MAX_SESSION_CACHE = 1000          # 全局会话缓存上限
 
+# 浮点结果"约简为精确分数"的判据（见 _format_result）。
+# 容差必须贴在浮点自身精度量级上，否则会把无理数当成精确分数——
+# 那个假分数还会被后续计算继续用，造成链式精度丢失。
+_FRACTION_SNAP_MAX_DEN = 1000     # 分母上限：只认"人写得出来"的分数
+_FRACTION_SNAP_REL_TOL = 1e-12    # 相对容差：约等于浮点舍入误差量级
+
 _ALLOWED_BIN_OPS = {
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow
 }
@@ -30,6 +36,8 @@ _ALLOWED_UNARY_OPS = {ast.UAdd, ast.USub}
 _ALLOWED_FUNCS = {
     "sqrt", "sin", "cos", "tan", "asin", "acos", "atan",
     "log", "ln", "abs", "factorial", "gcd", "lcm",
+    # 角度/弧度换算 + 常用对数（2026-09-12）：让"写对"比"猜对"容易，见 _eval_call 里的说明
+    "radians", "degrees", "log10", "lg",
 }
 
 
@@ -157,13 +165,21 @@ def _format_result(value) -> str:
         return str(value)
     if isinstance(value, float):
         if math.isfinite(value):
-            # 尝试化为分数
-            try:
-                frac = Fraction(value).limit_denominator(10000)
-                if abs(float(frac) - value) < 1e-9:
-                    return _format_result(frac)
-            except Exception:
-                pass
+            # 只有"这个浮点**确实就是**那个分数"时才替换成分数表示。
+            #
+            # 原先判据是 limit_denominator(10000) 且绝对误差 < 1e-9 —— **太松**：
+            # log10(7) = 0.8450980400142568 会被写成 `431/510`（误差约 8e-10），
+            # 把一个**无理数**呈现成**精确分数**。危害有两条：
+            #   1. 学生看到的是一个冒充精确值的近似分数；
+            #   2. 这个分数会被**后续计算继续使用** —— 例如 degrees(asin(0.5))
+            #      因此从 30 变成 30.0000025（链式精度丢失）。
+            # 新判据：容差取"浮点自身精度量级"（相对 1e-12），
+            # 于是 0.1+0.2 -> 3/10、sin(30°) -> 1/2 仍会被正确约简，
+            # 而 log10(7)、asin(0.5) 这类无理数保持浮点原样。
+            frac = Fraction(value).limit_denominator(_FRACTION_SNAP_MAX_DEN)
+            tol = _FRACTION_SNAP_REL_TOL * max(1.0, abs(value))
+            if abs(float(frac) - value) <= tol:
+                return _format_result(frac)
             return str(value)
         raise CalculatorError("计算结果为非有限值")
     return str(value)
@@ -373,7 +389,23 @@ def _to_fraction(value):
     if isinstance(value, int):
         return Fraction(value)
     if isinstance(value, float):
-        return Fraction(value).limit_denominator(10000)
+        if not math.isfinite(value):
+            raise CalculatorError("参与运算的数值必须是有限值")
+        # 只有"这个浮点**确实就是**某个简单分数"时才转成分数。
+        #
+        # 原先无条件 `Fraction(value).limit_denominator(10000)` —— 于是**每一个**
+        # 作为函数参数传入的浮点都会被有理化，精度当场丢掉，而且丢掉的误差会被
+        # 后续计算继续用。实测症状：`sin(radians(30))` 得到 0.5000000385 而不是 0.5；
+        # `degrees(asin(0.5))` 得到 30.0000025 而不是 30。
+        #
+        # 判据与 `_format_result` 保持一致（同一套容差常量），
+        # 于是 1/3、0.1+0.2 这类仍走精确分数，
+        # 而 asin(0.5)、radians(30)、log(7) 这类无理数保持浮点原样。
+        frac = Fraction(value).limit_denominator(_FRACTION_SNAP_MAX_DEN)
+        tol = _FRACTION_SNAP_REL_TOL * max(1.0, abs(value))
+        if abs(float(frac) - value) <= tol:
+            return frac
+        return value
     raise CalculatorError(f"无法转换为分数: {value}")
 
 
@@ -385,8 +417,15 @@ def _eval_call(node: ast.Call):
         raise CalculatorError(f"未定义的函数: {func_name}")
 
     args = [_eval_node(a) for a in node.args]
-    if any(isinstance(a, _SymbolExpr) for a in args):
-        raise CalculatorError(f"函数 {func_name} 暂不支持符号参数")
+    if any(isinstance(a, _SymbolExpr) and a.value is None for a in args):
+        raise CalculatorError(f"函数 {func_name} 的符号参数没有可用的数值")
+    # 符号参数（pi、sqrt(2) 等）取它们的数值参与函数计算。
+    #
+    # 原先这里直接拒绝："函数 sin 暂不支持符号参数" —— 于是 `sin(pi/6)`、
+    # `sin(30*pi/180)` 这类**数学上最自然的写法**全部报错。
+    # 而 `_SymbolExpr` 本来就带 `value`（pi 就是 math.pi），取数值即可，
+    # 结果仍会经 `_format_result` 还原成精确分数（sin(pi/6) -> 1/2）。
+    args = [a.value if isinstance(a, _SymbolExpr) else a for a in args]
 
     nums = [_to_number(_to_fraction(a)) for a in args]
 
@@ -461,6 +500,29 @@ def _eval_call(node: ast.Call):
         if nums[0] <= 0:
             raise CalculatorError("ln 参数必须大于 0")
         return math.log(nums[0])
+    # ---- 角度/弧度换算与常用对数（2026-09-12 新增）----
+    #
+    # 为什么必须加这几个：本模块的 sin/cos/tan 是**弧度制**（走 math.sin 等），
+    # 而初中几何题里的角几乎都是度数（30°/45°/60°）。此前 schema 只写"支持 sin/cos/tan"、
+    # 不写单位，模型很可能写 sin(30) 期望 0.5，实际拿到 -0.9880316240928618 ——
+    # 这个错值会直接进入给学生的解题步骤。给出显式的换算函数，让"写对"比"猜对"容易。
+    #
+    # 注意：同仓库的 `coord_engine.eval_expression` 用的是**度数制**（它服务于图纸坐标，
+    # 写 sin(30) 就是 0.5）。两处约定不同，各自都在文档里写明了，改动时别互相看齐。
+    if func_name == "radians":
+        if len(nums) != 1:
+            raise CalculatorError("radians 需要 1 个参数")
+        return math.radians(nums[0])
+    if func_name == "degrees":
+        if len(nums) != 1:
+            raise CalculatorError("degrees 需要 1 个参数")
+        return math.degrees(nums[0])
+    if func_name in ("log10", "lg"):
+        if len(nums) != 1:
+            raise CalculatorError(f"{func_name} 需要 1 个参数")
+        if nums[0] <= 0:
+            raise CalculatorError(f"{func_name} 参数必须大于 0")
+        return math.log10(nums[0])
     if func_name == "abs":
         if len(nums) != 1:
             raise CalculatorError("abs 需要 1 个参数")
@@ -576,6 +638,12 @@ CALCULATOR_TOOL_SCHEMA = {
         "description": (
             "精确数学计算器。用于解题过程中的中间计算。"
             "支持 + - * / // % **、sqrt、sin/cos/tan/asin/acos/atan、log/ln、abs、factorial、gcd/lcm。"
+            # ↓ 单位与底数必须写清楚。此前只写"支持 sin/cos/tan、log/ln"，
+            #   模型做几何题会写 sin(30) 期望 0.5，实际拿到 -0.988 —— 错值直接进学生的解题步骤。
+            "【三角函数用弧度】角度请写成 sin(pi/6) 或 sin(radians(30)) 或 sin(30*pi/180)，"
+            "三者等价；asin/acos/atan 返回的也是弧度，要度数请包一层 degrees(...)。"
+            "【log 与 ln 都是自然对数】常用对数（以 10 为底）请用 log10(x) 或 lg(x)；"
+            "任意底数用 log(x, b) 或 log(x)/log(b)。"
             "使用 pi、e 表示圆周率和自然常数。"
             "如需引用上一次计算结果，在表达式中写 prev_result。"
             "结果保留符号（如 sqrt(2)、pi）和最简分数。"

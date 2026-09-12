@@ -1,4 +1,4 @@
-﻿// ===== Editor State =====
+// ===== Editor State =====
 var editor = {
   components: [],        // [{type, x, y, w, h, locked, label, annotation, shadow}]
   allComponentDefs: [],  // from gallery API
@@ -146,6 +146,25 @@ var editor = {
       });
       el.addEventListener('dragend', function(e){
         el.classList.remove('dragging');
+      });
+      // 触屏 / 键盘兜底：HTML5 DnD 在 Android WebView 触摸下不触发（base.html 注释自述
+      // 「App 内无拖拽」），键盘也无法拖拽，此前 addComponent 的**唯一**调用点在 drop 里，
+      // 导致这两种环境下元件根本加不上。点击或回车即在画布中心放置一个。
+      el.tabIndex = 0;
+      el.setAttribute('role', 'button');
+      el.title = (c.name || c.type || '') + '（点击添加到画布中心，或拖拽到指定位置）';
+      function placeByClick(){
+        var svg = editor.canvasSvg;
+        if(!svg){ editor.toast('画布未就绪', 'error'); return; }
+        var rect = svg.getBoundingClientRect();
+        if(rect.width === 0 || rect.height === 0){ editor.toast('画布尺寸异常，请刷新页面', 'error'); return; }
+        var vb = editor._parseViewBox(svg);
+        // 与 drop 路径保持同款偏移（-25/-20）使落点语义一致
+        editor.addComponent(el.dataset.type, vb[0] + vb[2] / 2 - 25, vb[1] + vb[3] / 2 - 20);
+      }
+      el.addEventListener('click', function(e){ e.preventDefault(); placeByClick(); });
+      el.addEventListener('keydown', function(e){
+        if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); placeByClick(); }
       });
       list.appendChild(el);
     });
@@ -632,10 +651,24 @@ var editor = {
         g.appendChild(sh);
       }
 
+      // 组件声明的绘制溢出（后端 /api/gallery/components 下发 overflow）。
+      // 温度计/刻度尺这类组件的刻度线与示数文本会画到 default_w/h **之外**：编辑器此前
+      // 完全不读这个字段，命中区与选择框只按 w/h 画 —— 结果是「看到的内容」与「能点到的框」
+      // 对不上，选中框套不住刻度，视觉上刻度还会压到邻居
+      // （FUTURE.md「温度计刻度线超出组件宽度的视觉溢出」）。
+      // 这里把溢出算进命中区与选择框；未声明 overflow 的组件 ov* 全为 0，行为与原先完全一致。
+      var _cdef = null;
+      var _defs = this.allComponentDefs || [];
+      for(var _di = 0; _di < _defs.length; _di++){
+        if(_defs[_di].type === comp.type){ _cdef = _defs[_di]; break; }
+      }
+      var _ov = (_cdef && _cdef.overflow) || {};
+      var ovL = _ov.left || 0, ovT = _ov.top || 0, ovR = _ov.right || 0, ovB = _ov.bottom || 0;
+
       // ── Transparent hit-area rect (ensures clicks always register on the component bounds) ──
       var hitRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      hitRect.setAttribute('x', 0); hitRect.setAttribute('y', 0);
-      hitRect.setAttribute('width', comp.w); hitRect.setAttribute('height', comp.h);
+      hitRect.setAttribute('x', -ovL); hitRect.setAttribute('y', -ovT);
+      hitRect.setAttribute('width', comp.w + ovL + ovR); hitRect.setAttribute('height', comp.h + ovT + ovB);
       hitRect.setAttribute('fill', 'rgba(0,0,0,0)');
       hitRect.setAttribute('pointer-events', 'all');
       g.appendChild(hitRect);
@@ -693,11 +726,11 @@ var editor = {
         }
       }
 
-      // Selection outline
+      // Selection outline（把组件溢出算进去，让选中框套住实际可见内容）
       if(isSelected){
         var sel = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        sel.setAttribute('x', -3); sel.setAttribute('y', -3);
-        sel.setAttribute('width', comp.w+6); sel.setAttribute('height', comp.h+6);
+        sel.setAttribute('x', -(3+ovL)); sel.setAttribute('y', -(3+ovT));
+        sel.setAttribute('width', comp.w+6+ovL+ovR); sel.setAttribute('height', comp.h+6+ovT+ovB);
         sel.setAttribute('rx', '4'); sel.setAttribute('fill', 'none');
         sel.setAttribute('stroke', 'var(--accent)'); sel.setAttribute('stroke-width', '2.5');
         sel.setAttribute('stroke-dasharray', '5,3');
@@ -1060,6 +1093,30 @@ var editor = {
       row.appendChild(lbl); row.appendChild(control);
       return row;
     }
+    // 多选批量编辑的「公共值」：所有选中元件该属性一致才返回该值，否则标记 mixed。
+    // 写入端 updateProp 早已是 forEach 全体写入，但显示端此前只取**第一个**元件的值填进输入框
+    // ——「面板显示元件 A 的值、改一下却把 B/C/D 全改了」，用户看不到真实状态，极易误改
+    // （FUTURE.md「批量选择后批量属性编辑：当前只显示选中的第一个的属性」）。
+    // 现在：一致显示该值；不一致显示空 + 「多个值」占位，让用户明确知道是批量写入。
+    function commonOf(key){
+      var vals = [];
+      editor.selectedIndices.forEach(function(i){
+        var c = editor.components[i];
+        if(c) vals.push(c[key]);
+      });
+      if(!vals.length) return { mixed: false, value: undefined };
+      for(var i = 1; i < vals.length; i++){
+        if(vals[i] !== vals[0]) return { mixed: true, value: vals[0] };
+      }
+      return { mixed: false, value: vals[0] };
+    }
+    if(selCount > 1){
+      var batchHint = document.createElement('div');
+      batchHint.style.cssText = 'font-size:11px;color:var(--accent);margin:0 0 6px 0';
+      batchHint.textContent = '批量编辑：此处的修改会同时作用于选中的 ' + selCount + ' 个元件；显示「多个值」表示它们当前取值不一致。';
+      body.appendChild(batchHint);
+    }
+    // 说明：selCount / idx / comp 均在本函数上方已声明（'选中' 行与本段之前），此处直接复用，勿重复 var
     var countSpan = document.createElement('span');
     countSpan.style.cssText = 'flex:1;font-weight:600'; countSpan.textContent = selCount + ' 个元件';
     body.appendChild(makeRow('选中', countSpan));
@@ -1067,7 +1124,16 @@ var editor = {
     body.appendChild(makeRow('类型', typeSpan));
     function makeNumberInput(val, key, disabled){
       var inp = document.createElement('input');
-      inp.type = 'number'; inp.value = val; inp.disabled = !!disabled;
+      inp.type = 'number';
+      // 多选时按「公共值」显示，不一致则留空并以占位符提示；避免显示第一个元件的值造成误改
+      if(selCount > 1){
+        var c = commonOf(key);
+        if(c.mixed){ inp.value = ''; inp.placeholder = '多个值'; }
+        else { inp.value = (c.value === undefined ? val : c.value); }
+      } else {
+        inp.value = val;
+      }
+      inp.disabled = !!disabled;
       inp.addEventListener('change', function(){ editor.updateProp(key, inp.value); });
       return inp;
     }
@@ -1082,7 +1148,14 @@ var editor = {
       body.appendChild(ratioHint);
     }
     var labelInp = document.createElement('input');
-    labelInp.type = 'text'; labelInp.value = comp.label || '';
+    labelInp.type = 'text';
+    if(selCount > 1){
+      var _lc = commonOf('label');
+      if(_lc.mixed){ labelInp.value = ''; labelInp.placeholder = '多个值'; }
+      else { labelInp.value = _lc.value || ''; }
+    } else {
+      labelInp.value = comp.label || '';
+    }
     labelInp.addEventListener('input', function(){ editor.updateProp('label', labelInp.value, true); });
     body.appendChild(makeRow('标签', labelInp));
     if(comp.type === 'function_curve'){
@@ -1354,7 +1427,7 @@ var editor = {
     var inner = document.createElement('div');
     inner.className = 'modal'; inner.style.maxWidth = '560px';
     var closeBtn = document.createElement('button');
-    closeBtn.className = 'modal-close'; closeBtn.innerHTML = '&times;';
+    closeBtn.className = 'modal-close'; closeBtn.innerHTML = (window._closeIconSvg ? window._closeIconSvg() : '关闭');
     closeBtn.addEventListener('click', function(){ modal.remove(); });
     var h2 = document.createElement('h2'); h2.textContent = '选择组合摆法';
     var hint = document.createElement('p');
@@ -1666,7 +1739,7 @@ var editor = {
     var inner = document.createElement('div');
     inner.className = 'modal'; inner.style.maxWidth = '600px';
     var closeBtn = document.createElement('button');
-    closeBtn.className = 'modal-close'; closeBtn.innerHTML = '&times;';
+    closeBtn.className = 'modal-close'; closeBtn.innerHTML = (window._closeIconSvg ? window._closeIconSvg() : '关闭');
     closeBtn.addEventListener('click', function(){ modal.remove(); });
     var h2 = document.createElement('h2'); h2.textContent = '选择模板';
     inner.appendChild(closeBtn); inner.appendChild(h2); inner.appendChild(grid);
@@ -1729,8 +1802,24 @@ var editor = {
       uf: JSON.parse(JSON.stringify(this.ratioUF))
     };
     window.$API.post('/api/diagram/generate', {question_id: qid, prompt: '从编辑器保存', index: 0, spec_override: spec})
-      .then(function(r){ editor.toast('已保存到题目 '+qid, 'ok'); editor.recordCalibration(); })
+      .then(function(r){
+        editor.toast('已保存到题目 '+qid, 'ok');
+        editor.recordCalibration();
+        editor.checkDiagramQuality(qid, 0);   // R24：保存后自动跑质量自检
+      })
       .catch(function(e){ editor.toast('保存失败: '+e.message, 'error'); });
+  },
+  // R24：保存后自动质量自检。后端 /api/diagram/check 现在会返回 quality_issues
+  // （此前 _validate_svg_quality 是零调用点的死代码，本轮才接上线）。
+  // 为什么要给学生看而不是只写日志：R22 出过「消毒删掉 style → 图上一条线都看不见」，
+  // 而接口 200、状态 done、前端一切正常 —— 只有肉眼能发现。自检发现就当场说。
+  checkDiagramQuality: function(qid, index){
+    if(!qid) return;
+    window.$API.get('/api/diagram/check/'+encodeURIComponent(qid)+'/'+index).then(function(r){
+      var issues=(r&&r.quality_issues)||[];
+      if(!issues.length) return;
+      editor.toast('图已保存，但自检发现 '+issues.length+' 项问题：'+issues.slice(0,2).join('；'), 'warn');
+    }).catch(function(){ /* 自检不可用不打扰用户：保存本身已经成功 */ });
   },
   loadFromGallery: function(){
     var old = document.querySelector('.modal-overlay'); if(old) old.remove();
@@ -1762,7 +1851,7 @@ var editor = {
       var inner = document.createElement('div');
       inner.className = 'modal'; inner.style.maxWidth = '600px';
       var closeBtn = document.createElement('button');
-      closeBtn.className = 'modal-close'; closeBtn.innerHTML = '&times;';
+      closeBtn.className = 'modal-close'; closeBtn.innerHTML = (window._closeIconSvg ? window._closeIconSvg() : '关闭');
       closeBtn.addEventListener('click', function(){ modal.remove(); });
       var h2 = document.createElement('h2'); h2.textContent = '从图库加载';
       inner.appendChild(closeBtn); inner.appendChild(h2); inner.appendChild(grid);
@@ -1788,7 +1877,7 @@ var editor = {
     var inner = document.createElement('div');
     inner.className = 'modal'; inner.style.maxWidth = '640px';
     var closeBtn = document.createElement('button');
-    closeBtn.className = 'modal-close'; closeBtn.innerHTML = '&times;';
+    closeBtn.className = 'modal-close'; closeBtn.innerHTML = (window._closeIconSvg ? window._closeIconSvg() : '关闭');
     closeBtn.addEventListener('click', function(){ modal.remove(); });
     var h2 = document.createElement('h2'); h2.textContent = '语义场景库';
     var searchRow = document.createElement('div');
@@ -2093,7 +2182,7 @@ var editor = {
       var inner = document.createElement('div');
       inner.className = 'modal'; inner.style.maxWidth = '650px';
       var closeBtn = document.createElement('button');
-      closeBtn.className = 'modal-close'; closeBtn.innerHTML = '&times;';
+      closeBtn.className = 'modal-close'; closeBtn.innerHTML = (window._closeIconSvg ? window._closeIconSvg() : '关闭');
       closeBtn.addEventListener('click', function(){ modal.remove(); });
       var h2 = document.createElement('h2'); h2.textContent = '位置校准统计';
       var hint = document.createElement('p');

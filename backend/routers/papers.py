@@ -573,6 +573,63 @@ async def download_paper(paper_id: str, fmt: str = "html",
     )
 
 
+@router.get("/{paper_id}/download-bundle")
+async def download_paper_bundle(paper_id: str, modes: str = "paper", fmt: str = "html",
+                                paper_size: str = "A4", db: AsyncSession = Depends(get_db)):
+    """多选下载打包成单个 .zip。
+
+    来源：`FUTURE.md`「优化方向」——「多 `window.open` 在严格浏览器策略下可能被拦截：
+    考虑改为单次下载 .zip 或后端 tar 打包」。
+
+    原前端在**同一次点击**里同步开最多 4 个 `window.open`，浏览器只放行第一个、
+    其余被静默拦截，而提示却写「已为您分 4 个文件下载」——**用户只拿到 1 份却被告知成功**。
+    改为一次请求返回一个 zip，全程只触发一次下载。单选时仍走原单文件路径，行为不变。
+    """
+    valid = ("paper", "qa", "score", "answer_card")
+    wanted = [m.strip().lower() for m in str(modes or "").split(",") if m.strip()]
+    wanted = list(dict.fromkeys(wanted))          # 去重且保序
+    if not wanted:
+        raise HTTPException(400, detail="至少选择一个下载内容")
+    bad = [m for m in wanted if m not in valid]
+    if bad:
+        raise HTTPException(400, detail="mode 必须是 paper、qa、score 或 answer_card")
+    if len(wanted) == 1:
+        return await download_paper(paper_id, fmt=fmt, mode=wanted[0],
+                                    paper_size=paper_size, db=db)
+
+    import io
+    import zipfile
+    from urllib.parse import quote
+
+    paper = await db.get(Paper, paper_id)
+    if not paper:
+        raise HTTPException(404, detail="试卷不存在")
+
+    labels = {"paper": "试卷", "qa": "标答", "score": "得分点", "answer_card": "答题卡"}
+    ext = ".docx" if str(fmt).strip().lower() == "word" else ".html"
+    # 文件名去掉路径分隔与控制字符，避免 zip 条目名污染
+    safe_title = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", paper.title or "paper").strip() or "paper"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for m in wanted:
+            resp = await download_paper(paper_id, fmt=fmt, mode=m,
+                                        paper_size=paper_size, db=db)
+            if isinstance(resp, FileResponse):
+                # word 分支返回 FileResponse（流式），从磁盘读回
+                with open(resp.path, "rb") as fp:
+                    zf.writestr(f"{safe_title}_{labels[m]}{ext}", fp.read())
+            else:
+                body = resp.body
+                if not isinstance(body, (bytes, bytearray)):
+                    body = bytes(body or b"")
+                zf.writestr(f"{safe_title}_{labels[m]}{ext}", body)
+    buf.seek(0)
+    zip_name = quote(f"{safe_title}.zip")
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{zip_name}"})
+
+
 async def _build_score_page(paper) -> str:
     qids = paper.question_ids or []
     if not qids: return ""

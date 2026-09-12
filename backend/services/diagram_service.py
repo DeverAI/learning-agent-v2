@@ -216,6 +216,95 @@ def _render_schematic_line_chart(points_spec: list[dict], k: float = 50,
     return "\n".join(lines)
 
 
+# 失败占位的签名文本。assembler.assemble 在「无 template 且无 components」时返回一张
+# 灰底卡片（带 viewBox 和 <text>），只打 WARNING 日志、不抛错。仅靠「viewBox + 绘图标签」
+# 的正则存在性判断**必然放行**它（探针实测 _has_drawing_content(占位) == True），于是占位
+# 被当正式图落盘并返回成功 URL（FreqErr [失败占位伪成功]）。
+_FAILURE_PLACEHOLDER_MARKERS = ("无可用组件，无法生成示意图",)
+
+
+def _is_failure_placeholder(svg: str) -> bool:
+    """是否为已知的失败占位卡片。
+
+    与空画布不同：占位带 viewBox 与 <text>，正则质检看不出来，必须按签名文本判。
+    """
+    text = str(svg or "")
+    return any(marker in text for marker in _FAILURE_PLACEHOLDER_MARKERS)
+
+
+def _is_experiment_svg(svg: str, spec: dict | None = None) -> bool:
+    """判断这张图是不是「物化实验图」。
+
+    用途：质量自检里数学图会按「只用黑白灰」判配色，而实验图允许彩色（液体、
+    火焰、试剂）。判据取三选一，宁可判成实验图（少报）也不要把彩色实验图误判成
+    数学图缺陷 —— 误杀合法图比放过可疑图更糟。
+    """
+    text = str(svg or "")
+    if "#f5f0e8" in text:          # 实验图的米白画布底色
+        return True
+    if isinstance(spec, dict) and (spec.get("template") or spec.get("components")):
+        return True
+    return False
+
+
+_STYLE_ALLOWED_PROPS = frozenset({
+    "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
+    "stroke-opacity", "stroke-miterlimit",
+    "fill", "fill-opacity", "fill-rule",
+    "opacity", "font-size", "font-family", "font-style", "font-weight",
+    "text-anchor", "dominant-baseline", "letter-spacing",
+    "marker-start", "marker-mid", "marker-end",
+    "vector-effect",
+})
+# 允许在值里出现 url(#...) 的属性（只可能是箭头标记引用）
+_STYLE_VALUE_URL_PROPS = frozenset({"marker-start", "marker-mid", "marker-end"})
+_STYLE_UNSAFE_TOKENS = (
+    "javascript:", "data:", "http:", "https:", "//",
+    "@import", "expression(", "behavior:", "-moz-binding",
+)
+
+
+def sanitize_style_attr(value: str) -> str:
+    """保留 `style` 属性里**白名单内的 CSS 声明**，其余丢弃。
+
+    ## 为什么不能像原来那样把 `style` 整条删掉（2026-09-12 实测）
+
+    坐标推理 / 折线示意这两条路径产出的图形，**笔画全部写在 `style` 里**：
+
+        <line x1="40" y1="270" x2="360" y2="30"
+              style="stroke:#333;stroke-width:2;fill:none"/>
+
+    而 `_sanitize_svg` 的属性白名单里没有 `style`，于是被整条删除，落盘变成：
+
+        <line x1="40" y1="270" x2="360" y2="30" />
+
+    没有 `stroke` 的 `<line>` 在 SVG 里等价于 `stroke:none` —— **线的完全不显示**。
+    学生看到的是一张只有字母和刻度数字的白图，而接口、数据库、前端全都报成功。
+    这是"教错学生"级别的静默失败，且**任何现有测试都发现不了**（没人渲染它）。
+
+    现在改为按 CSS 属性白名单保留：笔画、颜色、字号、定位全部留下，
+    危险构造（外部 URL、`expression()`、`@import`、`behavior:`）逐条丢弃。
+    """
+    out = []
+    for part in str(value or "").split(";"):
+        if ":" not in part:
+            continue
+        prop, _, val = part.partition(":")
+        prop = prop.strip().lower()
+        val = val.strip()
+        if not prop or not val or prop not in _STYLE_ALLOWED_PROPS:
+            continue
+        low = val.lower().replace(" ", "")
+        if any(tok in low for tok in _STYLE_UNSAFE_TOKENS):
+            continue
+        if "url(" in low:
+            if prop not in _STYLE_VALUE_URL_PROPS or not re.fullmatch(
+                    r"url\(#[a-zA-Z0-9_.:-]+\)", val):
+                continue
+        out.append(f"{prop}:{val}")
+    return ";".join(out)
+
+
 class DiagramService:
 
     def __init__(self):
@@ -223,6 +312,8 @@ class DiagramService:
         # 使用 WeakValueDictionary 防止长期运行后锁对象无限累积
         self._file_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._file_locks_lock = asyncio.Lock()
+        # R23：最近一次质量自检结果（路径 -> 问题列表），供 /api/diagram/check 读取。
+        self._quality_issues: dict[str, list[str]] = {}
 
     async def _acquire_file_lock(self, svg_path: str) -> asyncio.Lock:
         async with self._file_locks_lock:
@@ -273,6 +364,40 @@ class DiagramService:
                             os.remove(temp_path)
                         except OSError:
                             logger.warning("Failed to remove temporary SVG file: %s", temp_path)
+
+        # ── 质量自检（R23 接线，此前 _validate_svg_quality 是**零调用点**的死代码）──
+        # 为什么必须挂在统一落盘口：R22 实测过「消毒把 style 删掉 → 图上一条线都看不见」，
+        # 而接口 200 / 数据库 done / 前端正常显示，只有肉眼能发现。
+        # 为什么**只观测不拒收**：判据里的数学图配色白名单对彩色实验图并不适用，
+        # 直接拿它当门禁会把合法实验图拦掉。这里记录并暴露给 /api/diagram/check。
+        try:
+            issues = self._validate_svg_quality(
+                svg_path, is_experiment=_is_experiment_svg(svg, spec))
+            self._quality_issues[svg_path] = list(issues)
+            if issues:
+                logger.warning("SVG 质量自检 %d 项问题 %s: %s",
+                               len(issues), svg_path, "；".join(issues[:5]))
+        except Exception as exc:  # 自检自身绝不拖垮落盘
+            logger.warning("SVG 质量自检执行失败 %s: %s", svg_path, exc)
+        return svg_path
+
+    def validate_diagram(self, question_id: str, index: int = 0) -> list[str]:
+        """对已落盘的示意图跑质量自检，返回问题列表（供 /api/diagram/check 使用）。"""
+        path = os.path.join(QUESTIONS_DIR, question_id, f"diagram_{index}.svg")
+        if not os.path.exists(path):
+            return ["SVG文件不存在"]
+        cached = self._quality_issues.get(path)
+        if cached is not None:
+            return list(cached)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                head = f.read(65536)
+        except OSError:
+            head = ""
+        issues = self._validate_svg_quality(
+            path, is_experiment=_is_experiment_svg(head, None))
+        self._quality_issues[path] = list(issues)
+        return issues
 
     async def save_reference_svg(self, question_id: str, svg_code: str) -> dict:
         """校验并保存 OCR 视觉模型复刻的原题参考 SVG。
@@ -542,9 +667,10 @@ class DiagramService:
                 await self._write_svg(svg_path, svg_code)
 
                 # GLM vision review for math diagrams (if original image exists)
+                # 视觉复核走 MiMo-first 统一助手（Fact.md 模型分工定规，2026-09-09）
                 if raw_b64:
                     try:
-                        review = await ai_service.zhipuai_vision(raw_b64, (
+                        review = await ai_service.vision_mimo_first(raw_b64, (
                             "查看原题图片，并对照下面待检查 SVG 的代码，检查示意图是否正确。\n"
                             "检查：1.标注字母齐全 2.比例/位置正确 3.直角/虚线等符号\n"
                             f"【待检查 SVG】\n{svg_code[:12000]}\n"
@@ -1079,7 +1205,7 @@ class DiagramService:
                     '"connections":[["beaker","top","funnel","bottom"]],'
                     '"custom_ports":{"beaker":[{"id":"side_left","dx":-5,"dy":20,"dir":"left"}]}}'
                 )
-                spec_json = await ai_service.zhipuai_vision(raw_b64, hint, raw_mime, parse_json=True)
+                spec_json = await ai_service.vision_mimo_first(raw_b64, hint, raw_mime, parse_json=True)
             except Exception as e:
                 logger.warning("GLM vision failed for %s/%d: %s", question_id, index, e)
 
@@ -1115,19 +1241,27 @@ class DiagramService:
         # Render via new assembler
         try:
             svg_str = assemble(spec_json)
+            # 必须显式校验再落盘：空 spec 会让 assemble 返回「无可用组件」占位卡片，
+            # 而它带 viewBox+<text>、能骗过旧正则质检 → 被当成功图写入并返回 URL。
+            if _is_failure_placeholder(svg_str) or not self._has_drawing_content(svg_str):
+                raise ValueError("assembler 产出占位/空内容（无有效组件）")
+            await self._write_svg(svg_path, svg_str)
         except Exception as e:
             logger.warning("Assembler failed for %s/%d: %s, fallback to old render", question_id, index, e)
             svg_str, err = _render_components(spec_json)
             if err:
                 logger.warning("Old render also failed: %s", err)
                 return ""
-
-        await self._write_svg(svg_path, svg_str)
+            if _is_failure_placeholder(svg_str) or not self._has_drawing_content(svg_str):
+                logger.warning("Old render also produced placeholder/empty for %s/%d", question_id, index)
+                return ""
+            await self._write_svg(svg_path, svg_str)
 
         # GLM vision review: original image vs rendered SVG
+        # 视觉复核走 MiMo-first 统一助手（Fact.md 模型分工定规，2026-09-09）
         if raw_b64:
             try:
-                review = await ai_service.zhipuai_vision(raw_b64, (
+                review = await ai_service.vision_mimo_first(raw_b64, (
                     "查看原题图片，评估生成的SVG实验装置图是否正确。\n"
                     f"【当前组件】{json.dumps(spec_json, ensure_ascii=False)[:1200]}\n"
                     '正确→{"verdict":"pass"}  需修正→{"verdict":"fix","issues":"具体问题描述"}'
@@ -1145,9 +1279,12 @@ class DiagramService:
                     if fix_spec:
                         try:
                             svg_str2 = assemble(fix_spec)
+                            # 重画同样要校验：占位/空内容不应覆盖首版成果
+                            if _is_failure_placeholder(svg_str2) or not self._has_drawing_content(svg_str2):
+                                raise ValueError("重画产出占位/空内容，保留首版")
                             await self._write_svg(svg_path, svg_str2)
                         except Exception as _re:
-                            logger.warning("Re-assemble failed: %s", _re)
+                            logger.warning("Re-assemble failed (保留首版): %s", _re)
             except Exception as e:
                 logger.info("GLM review skipped: %s", e)
 
@@ -1326,6 +1463,9 @@ class DiagramService:
         # 5. 调用 assemble 生成新 SVG
         try:
             svg_str = assemble(merged)
+            if _is_failure_placeholder(svg_str) or not self._has_drawing_content(svg_str):
+                logger.warning("Insert assemble produced placeholder/empty for %s", question_id)
+                return ""
         except Exception as e:
             logger.warning("Assemble failed for insert %s: %s", question_id, e)
             return ""
@@ -1413,8 +1553,15 @@ class DiagramService:
         """用 XML 标签与属性白名单净化 SVG，并拒绝所有外部资源。"""
         import xml.etree.ElementTree as ET
 
-        raw = html.unescape(str(svg_code or "")).strip()
+        raw = str(svg_code or "").strip()
         match = re.search(r"<svg\b[\s\S]*?</svg>", raw, flags=re.IGNORECASE)
+        if not match and ("&amp;" in raw or "&lt;" in raw or "&gt;" in raw or "&quot;" in raw):
+            # 仅在「原样提取失败」时才兼容模型把整个 SVG 当 HTML 实体转义回来的畸形输入。
+            # 绝不能无条件 unescape：那会把合法转义（&amp;/&lt;）解回裸字符，使本可正常解析的
+            # SVG 变成 ParseError 并被下面的分支降级为空画布（静默数据损坏）。
+            # 见 FreqErr.md [SVG 无条件 unescape]。
+            raw = html.unescape(raw)
+            match = re.search(r"<svg\b[\s\S]*?</svg>", raw, flags=re.IGNORECASE)
         if not match:
             raise ValueError("SVG 文档不完整")
         try:
@@ -1456,7 +1603,14 @@ class DiagramService:
                     attr = local_name(raw_attr)
                     value = str(child.attrib[raw_attr]).strip()
                     lowered = value.lower().replace(" ", "")
-                    if attr not in allowed_attrs:
+                    if attr == "style":
+                        # 不能整条删（会连笔画一起删掉，见 sanitize_style_attr 的说明）
+                        kept = sanitize_style_attr(value)
+                        if kept:
+                            child.attrib[raw_attr] = kept
+                        else:
+                            del child.attrib[raw_attr]
+                    elif attr not in allowed_attrs:
                         del child.attrib[raw_attr]
                     elif "url(" in lowered:
                         if attr not in local_url_attrs or not re.fullmatch(r"url\(#[a-zA-Z0-9_.:-]+\)", value):
@@ -1472,7 +1626,13 @@ class DiagramService:
                 attr = local_name(raw_attr)
                 value = str(element.attrib[raw_attr]).strip()
                 lowered = re.sub(r"\s+", "", value).lower()
-                if attr not in allowed_attrs:
+                if attr == "style":
+                    kept = sanitize_style_attr(value)
+                    if kept:
+                        element.attrib[raw_attr] = kept
+                    else:
+                        del element.attrib[raw_attr]
+                elif attr not in allowed_attrs:
                     del element.attrib[raw_attr]
                 elif "url(" in lowered:
                     if attr not in local_url_attrs or not re.fullmatch(
@@ -1526,11 +1686,15 @@ class DiagramService:
     @staticmethod
     def _has_drawing_content(svg: str) -> bool:
         """拒绝空画布/失败占位，只有真实绘图元素才可作为成功结果。"""
+        text = str(svg or "")
+        # 先排除失败占位：它含 viewBox 与 <text>，纯正则存在性判断会放行。
+        if _is_failure_placeholder(text):
+            return False
         return bool(
-            re.search(r"\bviewBox\s*=", svg, flags=re.IGNORECASE)
+            re.search(r"\bviewBox\s*=", text, flags=re.IGNORECASE)
             and re.search(
                 r"<(?:path|line|polyline|polygon|rect|circle|ellipse|text)\b",
-                svg,
+                text,
                 flags=re.IGNORECASE,
             )
         )

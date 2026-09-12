@@ -698,11 +698,15 @@ def assemble(comp_spec: dict) -> str:
     auto_vb = comp_spec.get("viewBox", None)
     if not auto_vb and not template_name:
         if all_x and all_y and max_x_vals and max_y_vals:
-            min_x = max(0, min(all_x) - 20)
-            min_y = max(0, min(all_y) - 20)
+            # 不再把 min 钳到 0：`max(0, min(all_x) - 20)` 会在内容靠近原点时**把这 20px
+            # 留白整个吃掉**（min(all_x)=5 -> max(0,-15)=0），于是左/上两侧的刻度与标注溢出
+            # 正好落在 viewBox 之外被裁掉——正是「自动 viewBox 对连接线和刻度溢出的覆盖」
+            # 要修的问题。SVG 允许 viewBox 原点为负，下游只读宽高，故安全。
+            min_x = min(all_x) - 20
+            min_y = min(all_y) - 20
             max_x = max(max_x_vals) + 20
             max_y = max(max_y_vals) + 20
-            # Make minimum size
+            # Make minimum size（最小尺寸约束按内容起点算，保持原有"至少 200x150 视野"语义）
             max_x = max(max_x, min_x + 200)
             max_y = max(max_y, min_y + 150)
             viewbox = (min_x, min_y, max_x - min_x, max_y - min_y)
@@ -789,5 +793,10 @@ def available_components(category: str = "") -> list[dict]:
             "default_h": cdef["default_h"],
             "z": cdef["z"],
             "locked": False,
+            # 组件声明的绘制溢出（温度计/刻度尺的刻度线与示数会画到 default_w/h 之外）。
+            # 后端 auto-viewBox 已经在用这个字段，但此前**没有下发给前端**，
+            # 导致编辑器只能按 default_w/h 画命中区与选择框——看到的内容与能点到的框对不上，
+            # 视觉上也会压到邻居（FUTURE.md「温度计刻度线超出组件宽度的视觉溢出」）。
+            "overflow": cdef.get("overflow", {}),
         })
     return result

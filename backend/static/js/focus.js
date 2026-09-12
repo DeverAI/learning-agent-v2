@@ -14,7 +14,9 @@
     synth: window.speechSynthesis,
     videoStream: null,
     voiceText: '',
-    voiceFeatures: { speed: 'normal', volume: 'normal', pause_count: 0 },
+    // 不再预置伪造的 'normal' 特征：无语音数据时保持 null（见 calculateVoiceFeatures）
+    voiceFeatures: null,
+    _voiceUsed: false,
     audioCtx: null,
     audioAnalyser: null,
     audioDataArray: null,
@@ -72,6 +74,18 @@
     dom.voiceTextPreview = document.getElementById('voiceTextPreview');
     dom.textFallback = document.getElementById('textFallback');
     dom.voiceTextInput = document.getElementById('voiceTextInput');
+  // 文字降级输入的**唯一**可用入口。
+  // 原实现的死路：submit 按钮 disabled 的解除点只有 recognition.onresult（:348），
+  // 而无 SpeechRecognition 的环境（Android WebView、多数非 Chrome 浏览器）里
+  // startListening 会直接 return，只把 textarea 显示出来；textarea 又没有任何监听，
+  // 于是学生看到"请使用文字输入"、输入完按钮仍是灰色 → **检查点无法提交、会话无法推进**。
+  // 这里补上输入监听：有内容即解除禁用，并同步给 state.voiceText 供提交使用。
+  if (dom.voiceTextInput) {
+    dom.voiceTextInput.addEventListener('input', function () {
+      state.voiceText = this.value || '';
+      if (dom.btnSubmit) dom.btnSubmit.disabled = !state.voiceText.trim();
+    });
+  }
     dom.emotionCapture = document.getElementById('emotionCapture');
     dom.video = document.getElementById('focusVideo');
     dom.canvas = document.getElementById('focusCanvas');
@@ -92,21 +106,33 @@
 
     // 检查浏览器支持
     checkBrowserSupport();
-    loadVoiceConfig();
+    // G8：引擎相关提示必须等配置读回后再判断
+    loadVoiceConfig().then(warnIfNoSynthesis);
   }
 
   function loadVoiceConfig() {
-    // 配音引擎配置读取失败不阻塞主流程：视为不可用，走浏览器合成
-    if (!window.$API || !window.$API.get) return;
-    window.$API.get('/api/settings').then(function(s){
+    // 配音引擎配置读取失败不阻塞主流程：视为不可用，走浏览器合成。
+    // 返回 Promise，便于调用方在配置**读回之后**再做依赖它的 UI 判断（见 G8）。
+    if (!window.$API || !window.$API.get) return Promise.resolve();
+    return window.$API.get('/api/settings').then(function(s){
       state.ttsAvailable = !!s.tts_available;
       state.voiceEngine = (s.focus_voice_engine === 'xiaomi' || s.focus_voice_engine === 'browser') ? s.focus_voice_engine : 'auto';
     }).catch(function(){});
   }
 
+  // G8 修复：本判断依赖 loadVoiceConfig() 的结果，必须在配置到位后调用。
+  // 原实现把它放在同步的 checkBrowserSupport() 里，而该函数在 init() 中先于异步
+  // loadVoiceConfig() 返回执行 → state.voiceEngine 必为初始 'auto' →
+  // `state.voiceEngine !== 'xiaomi'` 恒真，这个条件对"是否配置了小米优先"毫无判别力。
+  function warnIfNoSynthesis() {
+    if (!window.speechSynthesis && state.voiceEngine !== 'xiaomi') {
+      console.warn('浏览器不支持语音合成，且未配置优先小米配音；讲解将依赖服务器配音（可用时会自动回退）');
+    }
+  }
+
   function checkBrowserSupport() {
-    const hasSpeechRecognition = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-    const hasSpeechSynthesis = !!window.speechSynthesis;
+    // R24：安卓 App 里 Web Speech API 不存在，但原生桥（android_sr.js 适配层）提供同形接口
+    const hasSpeechRecognition = !!pickSpeechRecognitionCtor();
 
     // 配音已有服务器引擎兜底（/api/tts），合成缺失本身不构成"环境不支持"；
     // 只有语音识别彻底不可用才展示降级提示。
@@ -114,10 +140,6 @@
       dom.unsupported.style.display = 'block';
       // 显示文字降级输入
       dom.textFallback.style.display = 'block';
-    }
-    if (!hasSpeechSynthesis && state.voiceEngine !== 'xiaomi') {
-      // 浏览器无合成且未配置优先小米时提示一次；小米失败仍会尝试原生（无则静默跳过）
-      console.warn('浏览器不支持语音合成，讲解将依赖服务器配音');
     }
   }
 
@@ -172,6 +194,7 @@
       }
 
       state.sessionId = resp.session.id;
+      state.totalCheckpoints = resp.session.total_checkpoints || 0;
       state.status = 'teaching';
       state.currentSegment = resp.session.segments[0];
       state.board = resp.session.board || null;
@@ -179,6 +202,11 @@
 
       showStudyScreen();
       renderSegment(state.currentSegment);
+      // 成功路径也必须恢复按钮。原实现只在**两个失败分支**调 _restoreBtn，而 reset()
+      // 又不碰 btnStartFocus → 结束后点"新的学习"时按钮仍是 disabled 且写着"启动中..."，
+      // 再叠加 start() 开头的 `if (startBtn.disabled) return` 守卫，
+      // **同一页面生命周期内只能开始一次学习**（已确证）。
+      _restoreBtn();
     } catch (err) {
       _restoreBtn();
       showStartError('启动失败：' + (err.message || '未知错误'));
@@ -238,6 +266,15 @@
     dom.content.innerHTML = '';
     $md(content, dom.content);
 
+    // 失败段视觉区分（M1）：整段以警示样式呈现，学生提交确认即重试
+    if (segment.failed) {
+      dom.content.style.color = 'var(--err, #c0392b)';
+      dom.content.style.fontStyle = 'italic';
+    } else {
+      dom.content.style.color = '';
+      dom.content.style.fontStyle = '';
+    }
+
     // AI 快照提示（本段执行了 snapshot 指令）
     if (segment.board_summary && segment.board_summary.snapshot > 0) {
       $toast('AI 已保存课堂回看快照', 'info');
@@ -247,9 +284,12 @@
     renderBoard();
 
     // 更新进度
+    // G7 修复：第二个形参是「检查点总数」，原实现却传了 segment.index（段序号），
+    // 于是界面恒显示「第 N 段 · N 个检查点」两个数字相等；而 submitCheckpoint 里又用真实的
+    // total_checkpoints 再调一次（同一控件两套语义互相覆盖）。统一改为读会话真实总数。
     updateProgress(
       (segment.index || 0) + 1,
-      state.sessionId ? (segment.index || 0) : 0
+      state.totalCheckpoints || 0
     );
 
     // 语音播放
@@ -276,7 +316,9 @@
     dom.checkpoint.style.display = 'block';
     dom.btnSubmit.disabled = true;
     state.voiceText = '';
-    state.voiceFeatures = { speed: 'normal', volume: 'normal', pause_count: 0 };
+    // 不再预置"normal"假值：无数据就保持 null，由 calculateVoiceFeatures 决定是否填充。
+    state.voiceFeatures = null;
+    state._voiceUsed = false;
     dom.voiceTextPreview.style.display = 'none';
     dom.voiceTextPreview.textContent = '';
     dom.voiceStatus.textContent = '';
@@ -298,8 +340,18 @@
     }
   }
 
+  // 识别构造函数选择：原生桥优先于 Web Speech（在 App 里前者才是能用的那个）
+  function pickSpeechRecognitionCtor() {
+    if (window.AndroidSpeechRecognition &&
+        (typeof window.AndroidSpeechRecognition.isAvailable !== 'function'
+         || window.AndroidSpeechRecognition.isAvailable())) {
+      return window.AndroidSpeechRecognition;
+    }
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  }
+
   function startListening() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = pickSpeechRecognitionCtor();
     if (!SpeechRecognition) {
       // 降级到文字输入
       dom.textFallback.style.display = 'block';
@@ -319,27 +371,33 @@
     state.lastSpeechTime = Date.now();
 
     state.recognition.onresult = function(event) {
+      // 真的收到识别结果 = 本次确实用了语音作答；只有这种情况才允许计算并上报语音特征。
+      // 纯文字作答路径不会走到这里，因此不会产生"编造的语速/音量"（见 calculateVoiceFeatures）。
+      state._voiceUsed = true;
       let interimTranscript = '';
-      let finalTranscript = '';
+      let newFinal = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript;
+          newFinal += transcript;
           state.wordCount += transcript.length;
-          state.lastSpeechTime = Date.now();
         } else {
           interimTranscript += transcript;
         }
       }
 
-      state.voiceText = finalTranscript || interimTranscript;
+      // G4 修复：final 文本必须**累加**，不能每次事件整体覆盖。
+      // 原实现 `state.voiceText = finalTranscript || interimTranscript` 会让后续事件的
+      // interim 片段把已确认的 final 文本冲掉，continuous=true 下多句回答最终只剩最后一片，
+      // 却被当作完整作答提交。这里维护一个累积的已确认文本，再用当前 interim 追加显示。
+      if (newFinal) state._finalText = (state._finalText || '') + newFinal;
+      state.voiceText = (state._finalText || '') + interimTranscript;
       dom.voiceTextPreview.textContent = state.voiceText;
       dom.voiceTextPreview.style.display = 'block';
       dom.btnSubmit.disabled = !state.voiceText;
-
-      // 检测停顿
-      detectPause();
+      // 任何识别结果（含 interim）都算"正在说话"；停顿交给 _pauseTimer 按空闲时间判定。
+      state.lastSpeechTime = Date.now();
     };
 
     state.recognition.onerror = function(event) {
@@ -370,6 +428,7 @@
       dom.btnVoice.classList.add('active');
       dom.voiceStatus.textContent = '正在聆听...';
       startAudioAnalysis();
+      startPauseWatch();
     } catch (e) {
       dom.voiceStatus.textContent = '启动语音识别失败：' + e.message;
     }
@@ -383,15 +442,28 @@
     }
     dom.btnVoice.classList.remove('active');
     dom.voiceStatus.textContent = '已停止';
+    stopPauseWatch();
     stopAudioAnalysis();
     calculateVoiceFeatures();
   }
 
-  function detectPause() {
-    const now = Date.now();
-    if (now - state.lastSpeechTime > 1000) {
-      state.pauseCount++;
-    }
+  // 停顿检测：**真实定时轮询**，而不是"事件计数"。
+  // 原实现 detectPause 只在 recognition.onresult 里被调用，且 lastSpeechTime 仅在 final
+  // 结果时刷新 → pause_count 实际等于"距上次 final 超过 1 秒后到达的 interim 事件数"，
+  // 与真实停顿无关（识别服务通常每 100~300ms 推一次 interim，该值会系统性虚高），
+  // 而这个数字会进入 voice_features 并被上报用于难度调节。
+  function startPauseWatch() {
+    stopPauseWatch();
+    state._pauseTimer = setInterval(function () {
+      if (!state.isListening) return;
+      if (Date.now() - state.lastSpeechTime > 1200) {
+        state.lastSpeechTime = Date.now();   // 一次停顿只计一次
+        state.pauseCount++;
+      }
+    }, 400);
+  }
+  function stopPauseWatch() {
+    if (state._pauseTimer) { clearInterval(state._pauseTimer); state._pauseTimer = null; }
   }
 
   // ========== 音频分析（语音特征） ==========
@@ -433,12 +505,24 @@
   }
 
   function calculateVoiceFeatures() {
+    // 只有**真的收到过识别结果**才计算语音特征。
+    // 原实现无条件计算：纯文字作答时 state.speechStartTime 仍是初值 0、state._lastVolume
+    // 从未被赋值 → wpm≈0 判 'slow'、音量判 'quiet'，pause_count 也恒 0；这些编造值会被
+    // 真实 POST 给后端用于难度调节与长期记忆（已确证）。无数据就不上报。
+    if (!state._voiceUsed) {
+      state.voiceFeatures = null;
+      return;
+    }
+    // 确实用过语音才初始化特征对象（不再由 showCheckpoint 预置假值）
+    state.voiceFeatures = { speed: 'normal', volume: 'normal', pause_count: 0 };
     const duration = (Date.now() - state.speechStartTime) / 1000; // 秒
-    const wpm = duration > 0 ? (state.wordCount / duration * 60) : 0;
+    const cpm = duration > 0 ? (state.wordCount / duration * 60) : 0;
 
-    // 语速判断
-    if (wpm < 80) state.voiceFeatures.speed = 'slow';
-    else if (wpm > 200) state.voiceFeatures.speed = 'fast';
+    // 中文语速以「字/分」衡量（正常约 200~300 字/分）。
+    // 原实现拿 transcript.length（**字符数**）去套英文 word/min 的 80/200 阈值，
+    // 语义错位 → 中文正常语速会被判成 'fast'，slow/fast 标签不可信。
+    if (cpm < 150) state.voiceFeatures.speed = 'slow';
+    else if (cpm > 320) state.voiceFeatures.speed = 'fast';
     else state.voiceFeatures.speed = 'normal';
 
     // 音量判断
@@ -528,8 +612,20 @@
 
   function browserSpeak(cleanText) {
     // 兜底合成同样受状态守卫：只有处于教学态才允许发声
-    if (!state.synth) return;
     if (!state.sessionId || state.status !== 'teaching') return;
+    // R24：安卓壳里**没有** speechSynthesis，但有原生 TTS 桥。
+    // lecture.js 早就接了这座桥，focus 一直没接 —— 结果是 App 内专注模式在
+    // 服务器配音不可用时"完全没声音"，且没有任何提示。这里补上同一条优先链。
+    if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
+      try {
+        window.AndroidTTS.speak(cleanText);
+        state.isSpeaking = true;
+        return;
+      } catch (e) {
+        // 桥异常时继续往下走（不再有 speechSynthesis 就自然静默，不伪造成功）
+      }
+    }
+    if (!state.synth) return;
     state.synth.cancel();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -552,6 +648,9 @@
     state.ttsSeq++;
     if (state.ttsAbort) { try { state.ttsAbort.abort(); } catch(e) {} state.ttsAbort = null; }
     _disposeServerAudio();
+    if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
+      try { window.AndroidTTS.stop(); } catch (e) { /* 桥已停 */ }
+    }
     if (state.synth) state.synth.cancel();
     state.isSpeaking = false;
   }
@@ -661,11 +760,12 @@
       state.status = 'teaching';
       if (resp.session) {
         state.board = resp.session.board || null;
+        state.totalCheckpoints = resp.session.total_checkpoints || 0;
         // 新板书内容写入当前页：翻到最新页让学生看到
         if (state.board && state.board.pages) state.boardPage = state.board.pages.length - 1;
         updateProgress(
           resp.session.segments.length,
-          resp.session.total_checkpoints
+          state.totalCheckpoints
         );
       }
       renderSegment(state.currentSegment);
@@ -699,9 +799,9 @@
       surface.appendChild(empty);
     }
     entries.forEach((e) => {
-      if (e && e.kind === 'svg' && e.asset) {
+      if (e && (e.kind === 'svg' || e.kind === 'image') && e.asset) {
         const card = document.createElement('div');
-        card.className = 'board-svg-card';
+        card.className = e.kind === 'image' ? 'board-svg-card board-ref-card' : 'board-svg-card';
         const img = document.createElement('img');
         img.alt = e.title || '板书图形';
         img.src = `/api/focus/${encodeURIComponent(state.sessionId || '')}/board/asset/${encodeURIComponent(e.asset)}`;
@@ -731,6 +831,18 @@
     if (ind) ind.textContent = `${state.boardPage + 1}/${board.pages.length}`;
     const snaps = document.getElementById('boardSnapshots');
     if (snaps && snaps.style.display !== 'none') renderBoardSnapshots();
+    syncBoardNav();
+  }
+
+  function syncBoardNav() {
+    // 前端设计优化：翻页按钮到首/末页时置灰。
+    // 原实现 boardPageShift 越界直接 return，按钮仍可点 → 点了没反应、也无任何反馈，
+    // 用户会以为"黑板坏了"。置灰能明确表达"已经到头了"。
+    const total = (state.board && state.board.pages) ? state.board.pages.length : 0;
+    const prev = document.getElementById('boardPrev');
+    const next = document.getElementById('boardNext');
+    if (prev) prev.disabled = (total <= 1) || (state.boardPage <= 0);
+    if (next) next.disabled = (total <= 1) || (state.boardPage >= total - 1);
   }
 
   function boardPageShift(delta) {
@@ -793,6 +905,10 @@
         $toast('已保存本页快照', 'ok');
         const box = document.getElementById('boardSnapshots');
         if (box && box.style.display !== 'none') renderBoardSnapshots();
+      } else {
+        // 静默失败修正：原实现只在"成功且带 snapshot"时给反馈，`ok` 为假（服务端拒绝、
+        // 黑板未启用、会话已结束等）时**既不提示成功也不提示失败**，用户点了按钮像没反应。
+        $toast((resp && resp.detail) || '保存快照失败：服务端未返回快照', 'error');
       }
     } catch (e) {
       $toast(e.message || '保存快照失败', 'error');
@@ -863,7 +979,9 @@
     state.voiceText = '';
     state.board = null;
     state.boardPage = 0;
-    state.voiceFeatures = { speed: 'normal', volume: 'normal', pause_count: 0 };
+    state.voiceFeatures = null;
+    state._voiceUsed = false;
+    stopPauseWatch();
     stopSpeaking();
     stopCamera();
     if (state._checkpointTimer) { clearTimeout(state._checkpointTimer); state._checkpointTimer = null; }

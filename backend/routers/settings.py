@@ -280,6 +280,22 @@ def mask_key(key: str) -> str:
     return key[:4] + "••••••••" + key[-4:]
 
 
+# 敏感配置键的统一判据。历史坑：导出侧只用 `"key" in k.lower()` 判敏感，而密码字段名为
+# `api_password`（不含 key）→ 明文导出；导入侧用同一条规则，导致 `api_password` 可被
+# PUT /api/settings/import 清空，而密码为空即「鉴权未启用」（见 main.py 的 expected 判定）
+# → 一次导入即可关掉全站鉴权。两份规则必须单点维护，新增敏感字段只改这里。
+#
+# 注意不要加 "token"：本项目的 `*_max_tokens` 是 int（`mask_key` 会 len(int) 抛 TypeError），
+# `xiaomi_token_plan_base_url` 是 URL 而非密钥——两者都是误伤。已实测键名清单确认。
+_SENSITIVE_KEY_TOKENS = ("key", "password", "secret")
+
+
+def is_sensitive_setting_key(name: str) -> bool:
+    """键名是否属于敏感配置：导出需掩码、导入需拒绝写入。"""
+    low = str(name or "").lower()
+    return any(token in low for token in _SENSITIVE_KEY_TOKENS)
+
+
 def _mask_custom_apis(apis: list) -> list:
     """Mask all API keys in custom_apis list for safe frontend response"""
     if not apis:
@@ -298,7 +314,9 @@ async def export_config():
     s = load_settings()
     export = dict(s)
     for k in list(export.keys()):
-        if "key" in k.lower():
+        # 只掩码字符串值：判据是「键名启发式」，未来若有数值键命中同类词
+        # （如 *_max_tokens），直接喂给 mask_key 会 len(int) 抛 TypeError 打断整个导出。
+        if is_sensitive_setting_key(k) and isinstance(export[k], str):
             export[k] = mask_key(export[k])
     export["custom_apis"] = _mask_custom_apis(s.get("custom_apis", []))
     from services.user_profile import load_profile
@@ -325,6 +343,11 @@ async def import_config(request: SettingsImportRequest):
     allowed_keys.add("profile")
     for k, v in data.items():
         if k not in allowed_keys:
+            continue
+        if is_sensitive_setting_key(k):
+            # 与上一行注释「拒绝写入任何含敏感 key 的字段」保持一致。旧规则是
+            # `"key" not in k`，漏掉 `api_password`：导入空值会把密码清空，而密码为空即
+            # 「鉴权未启用」（main.py 中 expected 为空直接放行）→ 一次导入关掉全站鉴权。
             continue
         if k == "profile":
             if not isinstance(v, dict):
@@ -460,7 +483,9 @@ async def import_config(request: SettingsImportRequest):
             if not isinstance(v, list):
                 raise HTTPException(400, detail="custom_openai_scopes 必须是字符串列表")
             s[k] = list(dict.fromkeys(scope for scope in v if isinstance(scope, str) and scope in _ALLOWED_CUSTOM_SCOPES))
-        elif "key" not in k and "••••" not in str(v):
+        elif "••••" not in str(v):
+            # 键名敏感判据已在循环开头由 is_sensitive_setting_key 统一拦截，
+            # 这里只保留"掩码值不回写"这一条（防止把 •••• 当真实值存进去）。
             # 字符串键统一截断，防止导入超长字段撑爆配置
             if isinstance(v, str):
                 v = v[:5000]
@@ -483,3 +508,74 @@ async def import_config(request: SettingsImportRequest):
     from services.ai_service import ai_service
     ai_service._reload()
     return {"message": "配置已导入"}
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(default="", max_length=128)
+    new_password: str = Field(default="", max_length=128)
+    confirm_new_password: str = Field(default="", max_length=128)
+
+
+@router.get("/password/status")
+async def password_status():
+    """只返回「是否已设置密码」，不回传密码本身。"""
+    from main import _get_auth_password
+    return {"has_password": bool(_get_auth_password())}
+
+
+@router.post("/password")
+async def change_password(data: PasswordChangeRequest):
+    """设置/修改/关闭访问密码。
+
+    安全约束（与 main.password_guard 对齐）：
+    - 已设密码时必须先验当前密码；未设时 current 可空。
+    - new 为空 = 关闭鉴权（settings.api_password 清空），允许但需验当前密码。
+    - 环境变量 LEARNING_AGENT_PASSWORD 优先于 settings.json：若 env 有值，
+      改 settings 里的密码**不会生效**，必须如实告知用户（容量诚实）。
+    """
+    import hmac as _hmac
+    import os as _os
+    from main import _get_auth_password
+
+    current = str(data.current_password or "")
+    new = str(data.new_password or "")
+    confirm = str(data.confirm_new_password or "")
+    expected = _get_auth_password()
+
+    if expected and not _hmac.compare_digest(current, expected):
+        raise HTTPException(400, detail="当前密码不正确")
+    if new != confirm:
+        raise HTTPException(400, detail="两次输入的新密码不一致")
+    if new and len(new.strip()) < 4:
+        raise HTTPException(400, detail="新密码至少 4 位；留空表示关闭访问密码")
+
+    env_pwd = ""
+    try:
+        env_pwd = (_os.environ.get("LEARNING_AGENT_PASSWORD") or "").strip()
+    except Exception:
+        pass
+    if env_pwd:
+        raise HTTPException(
+            400,
+            detail="服务器通过环境变量 LEARNING_AGENT_PASSWORD 设置了访问密码，"
+                   "请先去掉环境变量再在页面改密",
+        )
+
+    s = load_settings()
+    previous = dict(s)
+    s["api_password"] = new.strip()
+    try:
+        save_settings(s)
+    except Exception as exc:
+        try:
+            save_settings(previous)
+        except Exception:
+            pass
+        raise HTTPException(500, detail="密码写入失败，已尝试恢复") from exc
+
+    disabled = not new.strip()
+    return {
+        "message": "已关闭访问密码（全站 API 不再校验）" if disabled else "密码已更新",
+        "has_password": not disabled,
+        "token": "" if disabled else new.strip(),
+    }

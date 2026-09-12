@@ -122,16 +122,33 @@ async def t3():
 asyncio.run(t3())
 
 
-# ---- T4 Agent 试卷意图（静态分支断言）----
-print("\n[T4] Agent 试卷意图（源码分支）")
-src = open(os.path.join("routers", "sessions.py"), encoding="utf-8").read()
-check("4.edit_paper 分支存在", 'itype == "edit_paper"' in src)
-check("4.delete_paper 分支存在", 'itype == "delete_paper"' in src)
-check("4.delete_paper 有确认闸（pending_confirmation）",
-      src.find('itype == "delete_paper"') < src.find('"type": "pending_confirmation"',
-                                                    src.find('itype == "delete_paper"')))
+# ---- T4 Agent 试卷意图（工具注册表）----
+# 2026-09-11 重构后：分支不再是 sessions.py 里的 `if itype == "..."` 源码串，
+# 而是 agent_tools.py 里的具名处理器 + agent_core.REGISTRY 里的一条表项。
+# 因此这里改成**按语义断言**（工具是否注册、有无确认闸、处理器是否可调用），
+# 而不是继续 grep 源码字符串 —— 旧的字符串断言正是"改一次结构就误报"的脆弱写法。
+print("\n[T4] Agent 试卷意图（工具注册表）")
+from services import agent_tools as _at
+_at.register_all()
+from services.agent_core import get as _tool_get
+_src_handlers = open(os.path.join("services", "agent_tools.py"), encoding="utf-8").read()
+_src_router = open(os.path.join("routers", "sessions.py"), encoding="utf-8").read()
+
+check("4.edit_paper 已注册（原先不在分类器 prompt 里 => 分支不可达）",
+      _tool_get("edit_paper") is not None)
+check("4.delete_paper 已注册（同上，原先同样不可达）",
+      _tool_get("delete_paper") is not None)
+check("4.edit_paper 带确认闸（原注释声称有、实际没有，现已补上）",
+      bool(_tool_get("edit_paper").requires_confirm))
+check("4.delete_paper 处理器可调用",
+      callable(getattr(_tool_get("delete_paper"), "handler", None)))
+check("4.delete_paper 走「用户原话确认语」闸（不信任分类器给的 confirm）",
+      _tool_get("delete_paper").requires_confirm == "确认删除试卷"
+      and 'c.data.get("confirm"' not in _src_handlers)
 check("4.delete_paper 题目保留语义（paper_id=None 解绑）",
-      "paper_id=None" in src[src.find('itype == "delete_paper"'):])
+      "paper_id=None" in _src_handlers)
+check("4.分类器 prompt 改为由注册表生成（消除手写失同步）",
+      "build_intent_prompt()" in _src_router)
 
 
 # ---- T5 路由注册 ----

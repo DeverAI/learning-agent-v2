@@ -391,6 +391,8 @@ def _run_smoke() -> subprocess.CompletedProcess:
         [sys.executable, script_path],
         cwd=BACKEND_DIR,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=180,

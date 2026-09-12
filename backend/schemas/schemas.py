@@ -52,6 +52,7 @@ class QuestionUpdate(BaseModel):
     grade: Optional[str] = Field(default=None, max_length=64)
     knowledge_tags: Optional[list[str]] = Field(default=None, max_length=50)
     region: Optional[str] = Field(default=None, max_length=64)
+    difficulty: Optional[str] = Field(default=None, max_length=16)
     avg_score: Optional[float] = Field(default=None, ge=0, le=150)
     question_html: Optional[str] = Field(default=None, max_length=200_000)
     answer_html: Optional[str] = Field(default=None, max_length=300_000)
@@ -120,6 +121,7 @@ class QuestionListItem(BaseModel):
     source_type: str
     bank: str = "default"
     region: str
+    difficulty: str = ""
     avg_score: Optional[float]
     audit_flags: list = Field(default_factory=list)
     is_resolved: bool = False
@@ -140,6 +142,7 @@ class QuestionListItem(BaseModel):
         "score_points_html", "diagram_description", "status", "error_message",
         "source_type", "bank", "region", "handwriting_notes", "user_hint",
         "reference_svg_path", "reference_svg_status", "reference_svg_error",
+        "difficulty",
         mode="before",
     )
     @classmethod

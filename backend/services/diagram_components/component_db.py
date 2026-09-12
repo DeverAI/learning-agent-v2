@@ -1606,10 +1606,20 @@ COMPONENT_DB = {
     },
     "conical_flask": {
         "name": "锥形瓶", "category": "chem",
-        "default_w": 40, "default_h": 98, "z": 10,
+        # 2026-09-11 端口对齐修正：原声明 40x98（宽高比 0.408），但本组件内部真实 SVG 的
+        # viewBox 是 880.8x532.8（宽高比 1.653）。前端 _portPos 按 comp.w/default_w 线性映射
+        # 端口，隐含前提是"图形填满声明方框"；比例不符时 preserveAspectRatio 会等比缩放并
+        # **垂直居中**（图形实际只占 y∈[36.9, 61.1]），而端口打在 dy=0 / dy=98 两端，全部偏离。
+        # 实测偏差 305%（探针 backups/deploy_r5_20260911/_probe_port_align.py）。
+        # 保持宽度 40，把高度对齐到图形比例：40 / 1.653 ≈ 24.2 -> 取 24，端口同步到 dy=24。
+        #
+        # 遗留：该美术资源自带较大留白（图形未填满其 viewBox），如需进一步贴合，需对
+        # 资源本身做一次 viewBox 收紧的内容级处理——本次**未做**，因为用数值抽取反推包围盒
+        # 的方法不可靠（相对命令增量/圆弧半径会被误判为坐标），没有可靠依据就不动资源。
+        "default_w": 40, "default_h": 24, "z": 10,
         "ports": [
             {"id": "top", "dx": 20, "dy": 0, "dir": "top"},
-            {"id": "bottom", "dx": 20, "dy": 98, "dir": "bottom"},
+            {"id": "bottom", "dx": 20, "dy": 24, "dir": "bottom"},
         ],
         "render": _conical_flask_svg,
     },

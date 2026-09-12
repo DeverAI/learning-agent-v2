@@ -129,8 +129,23 @@ FLAG_TYPES = {
     "diagram_inconsistent": "多图几何关系不一致",
     "question_challenge_low": "题目存在低概率疑点",
     "question_challenge_high": "题目大概率存在问题",
+    # ==== 识别链路的"降级留痕"（2026-09-12 新增）====
+    # 这两类不是"题目本身有问题"，而是"识别过程降级了，结果可能不完整"。
+    # 之所以必须进 audit_flags：原先这些降级只写进 storage/task_states/{qid}.json，
+    # 而该文件在任务**正常完成时会被 _clear_task_state 直接删掉** ——
+    # 于是"整页只切出一道题""部分图片没认出来"这两件事**永远不会被用户看到**。
+    "split_fallback": "整页切题失败，已按单题处理",
+    "ocr_partial_failure": "部分图片识别失败，内容可能不完整",
     "other": "其他问题",
 }
+# 清障/重写流程必须**保留**的标记类型。
+#
+# 原先这里是写死的三元组白名单，新类型不加进来就会被 `run_auto_rewrite` 悄悄清掉 ——
+# 表现为"标记出现过一会儿又没了"。所以新加标记类型时**必须同步这里**。
+_PRESERVED_FLAG_TYPES = (
+    "missing_diagram", "question_challenge_low", "question_challenge_high",
+    "split_fallback", "ocr_partial_failure",
+)
 
 async def flag_question(qid: str, flag_type: str, reason: str, auto: bool = True):
     """给题目添加审计标记"""
@@ -482,10 +497,7 @@ async def _rewrite_single_with_retry(q, style: str, max_retries: int = 2) -> tup
                             current_flags = q2.audit_flags if isinstance(q2.audit_flags, list) else []
                             q2.audit_flags = [
                                 f for f in current_flags
-                                if isinstance(f, dict) and f.get("type") in (
-                                    "missing_diagram", "question_challenge_low",
-                                    "question_challenge_high",
-                                )
+                                if isinstance(f, dict) and f.get("type") in _PRESERVED_FLAG_TYPES
                             ]
                             q2.error_message = ""  # 清除旧错误
                             await db.commit()

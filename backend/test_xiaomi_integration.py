@@ -186,7 +186,11 @@ class TestTTSApi:
         resp = client.post("/api/tts", json={"text": "hi"}, headers=_AUTH)
         assert resp.status_code == 502
 
-    def test_tts_requires_auth(self, client):
+    def test_tts_requires_auth(self, client, monkeypatch):
+        # 鉴权契约测试：显式启用密码（临时 settings 无 api_password 时
+        # 中间件按"未配置=放行"处理——2026-09-10 语义恢复后的正确写法）
+        import main as _main
+        monkeypatch.setattr(_main, "_get_auth_password", lambda: "Ntmhzsgtc")
         resp = client.post("/api/tts", json={"text": "hi"})
         assert resp.status_code == 401
 
@@ -233,6 +237,8 @@ class TestVisionFallbackChain:
         assert calls == ["mimo"]
 
     def test_vision_chain_skips_mimo_without_key(self, monkeypatch):
+        """无 xm_key 时跳过 MiMo 直落 ZhipuAI；ZhipuAI 也失败则返回 None
+        （2026-09-09 契约：Kimi 无视觉输入能力，已移出视觉兜底链——FreqErr）。"""
         import services.ai_service as m
         calls = []
         svc = m.ai_service
@@ -249,8 +255,8 @@ class TestVisionFallbackChain:
         monkeypatch.setattr(svc, "zhipuai_vision", zpoor)
         monkeypatch.setattr(svc, "kimi_vision", kmok)
         result = _run(m._call_vision_model_async("看图", "AAAA"))
-        assert result == "kimi 结果"
-        assert calls == ["zhipu", "kimi"]
+        assert result is None
+        assert calls == ["zhipu"]
 
 
 # ===================== 配置与设置页 =====================

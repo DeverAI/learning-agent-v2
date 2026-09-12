@@ -7,6 +7,37 @@
 </style>
 <div class="header"><h1>整卷上传</h1></div>
 
+<!-- 智能上传：混合内容（题目/笔记/试卷）AI 分流 -->
+<div class="card" id="smart">
+  <div class="card-title">智能上传（题目 / 笔记 / 试卷混传）</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">
+    一页上既有题又有笔记？直接丢进来。系统先识别每页是什么，再分别送进题库、笔记或试卷会话。
+    分类不确定时会按题目处理并提示核对。
+  </p>
+  <input type="file" id="smartFileInput" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+  <div class="upload-zone" id="smartDropZone" role="button" tabindex="0" aria-label="智能上传图片">
+    <p>点击或拖拽上传混合页（最多 12 张）</p>
+    <p class="hint">例如：第1页试卷、第2页错题、第3页概念笔记</p>
+    <div id="smartPreviews" class="upload-previews" style="display:none"></div>
+  </div>
+  <div class="row" style="margin-top:10px;align-items:flex-end">
+    <div class="form-group" style="flex:1;min-width:140px"><label>学科（可选）</label><input type="text" id="smartSubject" placeholder="数学"></div>
+    <div class="form-group" style="flex:1;min-width:140px"><label>年级（可选）</label><input type="text" id="smartGrade" placeholder="九上"></div>
+    <div class="form-group" style="flex:1;min-width:160px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="smartUseAi"> 用视觉模型分类（更准，略慢）
+      </label>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+    <button class="btn" id="smartClassifyBtn">只看分类结果</button>
+    <button class="btn btn-primary" id="smartUploadBtn">上传并分流</button>
+  </div>
+  <div id="smartStatus" style="margin-top:10px"></div>
+  <div id="smartPlan" style="margin-top:10px"></div>
+  <div id="smartResult" style="margin-top:10px"></div>
+</div>
+
 <!-- Step 1: Create session -->
 <div class="card" id="createCard">
   <div class="card-title">新建一份试卷记录</div>
@@ -54,6 +85,25 @@
   </div>
   <button class="btn btn-primary btn-lg" style="width:100%" id="makePaperBtn" onclick="makePaper()" disabled>等待题目处理完成</button>
   <div id="paperResult" style="margin-top:8px"></div>
+</div>
+
+<!-- My Sessions -->
+<div class="card">
+  <div class="card-title">电子版试卷 PDF 导入</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:8px">
+    文字版 PDF：按页拆成题目进整卷会话。扫描版抽不出文字，请改用拍照上传。
+  </p>
+  <input type="file" id="pdfFileInput" accept="application/pdf,.pdf" style="display:none">
+  <div class="row">
+    <div class="form-group"><label>标题</label><input type="text" id="pdfTitle" placeholder="如：2024一模数学"></div>
+    <div class="form-group"><label>学科</label><input type="text" id="pdfSubject" placeholder="数学"></div>
+    <div class="form-group"><label>年级</label><input type="text" id="pdfGrade" placeholder="九上"></div>
+  </div>
+  <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;font-size:13px">
+    <input type="checkbox" id="pdfProcess"> 导入后立即解题（耗时，可稍后在会话里处理）
+  </label>
+  <button class="btn btn-primary" id="pdfImportBtn">选择 PDF 并导入</button>
+  <div id="pdfImportStatus" style="margin-top:8px"></div>
 </div>
 
 <!-- My Sessions -->
@@ -159,7 +209,7 @@ async function uploadFiles(fileList){
       _sessTotal=r.session_total;
       _sessionUploadMode=r.upload_mode||mode;
       document.getElementById('sessCount').textContent='已上传: '+_sessTotal+' 题';
-    }catch(e){st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">第'+(i+1)+'张失败: '+e.message+'</div>';return}
+    }catch(e){st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">第'+(i+1)+'张失败: '+$esc(e.message)+'</div>';return}
   }
   st.innerHTML='<div class="alert">已上传 '+_sessTotal+' 题。点击「开始处理」让 AI 批量解题。</div>';
   document.getElementById('makePaperBtn').disabled=true;document.getElementById('makePaperBtn').textContent='等待题目处理完成';
@@ -185,7 +235,7 @@ async function uploadMultiFiles(fileList){
     document.getElementById('processBtn').textContent='开始处理 ('+_sessTotal+' 题)';
     loadSessions();
   }catch(e){
-    st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+e.message+'</div>';
+    st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc(e.message)+'</div>';
   }
 }
 
@@ -229,11 +279,14 @@ async function processSession(){
   var fd=new FormData();fd.append('user_hint',hint);fd.append('user_tags',tags);fd.append('split_mode',split);fd.append('upload_mode',mode);
   try{
     var r=await $API.upload('/api/ocr/session/'+_sessionId+'/process',fd);
-    document.getElementById('processStatus').innerHTML='<div class="alert">'+r.message+'。等待处理完成后可点击「生成试卷」。</div>';
+    // 同 questions.js：被后端跳过的题目必须说出来，否则"已启动 N 道"会掩盖实际少跑的部分
+    var _rej=(r&&r.rejected)||[];
+    var _extra=_rej.length?('；另有 '+_rej.length+' 道被跳过（已在处理中、已锁定或状态不允许）'):'';
+    document.getElementById('processStatus').innerHTML='<div class="alert">'+$esc(r.message+_extra)+'。等待处理完成后可点击「生成试卷」。</div>';
     document.getElementById('paperHint').style.display='block';
     document.getElementById('paperHint').innerHTML='题目正在后台处理中。稍等片刻后点击「生成试卷」按钮。';
     document.getElementById('makePaperBtn').disabled=true;
-    $toast(r.message,'ok');
+    $toast(r.message+_extra, _rej.length?'warn':'ok');
     startPolling();
     loadSessions();
   }catch(e){$toast(e.message,'error');$busy(btn,false)}
@@ -264,7 +317,7 @@ function startPolling(){
       document.getElementById('paperHint').innerHTML='处理中 '+(c.processing||0)+' 道，已完成 '+(c.done||0)+'/'+total+'。';
       _sessionPollTimer=setTimeout(poll,3000);
     }).catch(function(e){
-      document.getElementById('paperHint').innerHTML='状态查询失败：'+e.message;
+      document.getElementById('paperHint').innerHTML='状态查询失败：'+$esc(e.message);
       _sessionPollTimer=setTimeout(poll,5000);
     });
   }
@@ -287,10 +340,159 @@ async function makePaper(){
 
 async function delSession(id){if(!await $confirm('确定删除该上传任务？',{danger:true}))return;try{await $API.del('/api/ocr/session/'+encodeURIComponent(id));$toast('已删除','ok');loadSessions()}catch(e){$toast(e.message,'error')}}
 
+// ===== 智能上传 =====
+var _smartFiles=[];
+function _smartStatus(msg,type){
+  var el=document.getElementById('smartStatus');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.style.color=type==='error'?'var(--err)':(type==='ok'?'var(--ok)':'var(--text2)');
+}
+function _smartReset(){
+  _smartFiles=[];
+  var p=document.getElementById('smartPreviews');
+  if(p){p.innerHTML='';p.style.display='none'}
+  document.getElementById('smartPlan').innerHTML='';
+  document.getElementById('smartResult').innerHTML='';
+}
+function _smartAddFiles(list){
+  var files=Array.prototype.slice.call(list||[]).filter(function(f){
+    return /^image\//.test(f.type)&&f.size&&f.size<=10*1024*1024;
+  });
+  if(!files.length){_smartStatus('没有可用图片（需 JPG/PNG/WebP 且 ≤10MB）','error');return}
+  _smartFiles=_smartFiles.concat(files).slice(0,12);
+  var box=document.getElementById('smartPreviews');
+  box.innerHTML='';box.style.display='grid';
+  _smartFiles.forEach(function(f){
+    var img=document.createElement('img');
+    img.className='upload-preview';img.alt=f.name;img.title=f.name;
+    try{img.src=URL.createObjectURL(f)}catch(e){}
+    box.appendChild(img);
+  });
+  _smartStatus('已选 '+_smartFiles.length+' 张','info');
+}
+function _smartFormData(endpoint){
+  var fd=new FormData();
+  _smartFiles.forEach(function(f){fd.append('files',f)});
+  fd.append('use_ai',document.getElementById('smartUseAi').checked?'true':'false');
+  fd.append('subject',document.getElementById('smartSubject').value.trim());
+  fd.append('grade',document.getElementById('smartGrade').value.trim());
+  if(endpoint==='upload'){
+    // 用分类结果里的 dest（用户可改 select 后重新读）
+    var dests=_smartFiles.map(function(_,i){
+      var sel=document.querySelector('#smartPlan select[data-idx="'+i+'"]');
+      return sel?sel.value:'';
+    });
+    // 若全部为空则不传 dests，让后端自动分类
+    if(dests.every(function(d){return !d})){/* auto */}
+    else fd.append('dests',dests.join(','));
+  }
+  return fd;
+}
+function _renderSmartPlan(plan){
+  var box=document.getElementById('smartPlan');
+  if(!plan||!plan.length){box.innerHTML='';return}
+  var html='<div class="card-title" style="margin-bottom:6px">分类结果（可改）</div><table><thead><tr><th>#</th><th>文件</th><th>建议</th><th>置信度</th><th>识别预览</th></tr></thead><tbody>';
+  plan.forEach(function(p){
+    var opts=['question','note','paper','unknown'].map(function(d){
+      var label=({question:'题目',note:'笔记',paper:'试卷',unknown:'待确认'})[d]||d;
+      return '<option value="'+d+'"'+(p.dest===d?' selected':'')+'>'+label+'</option>';
+    }).join('');
+    html+='<tr><td>'+(p.index+1)+'</td><td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+$esc(p.filename||'')+'">'+$esc(p.filename||'')+'</td>';
+    html+='<td><select data-idx="'+p.index+'">'+opts+'</select></td>';
+    html+='<td>'+(p.confidence||0)+'</td>';
+    html+='<td style="max-width:220px;font-size:12px;color:var(--text2)">'+$esc(p.ocr_preview||'')+'</td></tr>';
+  });
+  html+='</tbody></table><p style="font-size:12px;color:var(--text3);margin-top:6px">改完目标后点「上传并分流」；也可不点「只看分类结果」直接上传（自动分类）。</p>';
+  box.innerHTML=html;
+}
+function _renderSmartResult(r){
+  var box=document.getElementById('smartResult');
+  if(!r){box.innerHTML='';return}
+  var items=r.results||[];
+  var html='<div class="alert">完成 '+ (r.ok||0) +' / '+(r.total||items.length)+(r.dry_run?'（演练，未落库）':'')+'</div><ul style="font-size:13px;margin:8px 0 0 18px">';
+  items.forEach(function(it){
+    var dest=({question:'题库',note:'笔记',paper:'试卷',unknown:'题目(待确认)'})[it.dest]||it.dest;
+    var id=it.id?(' '+it.id):'';
+    html+='<li>'+dest+id+' — '+$esc(it.message||'')+'</li>';
+  });
+  html+='</ul>';
+  box.innerHTML=html;
+}
+function setupSmartUpload(){
+  var dz=document.getElementById('smartDropZone');
+  var input=document.getElementById('smartFileInput');
+  if(!dz||!input)return;
+  dz.addEventListener('click',function(){input.click()});
+  dz.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click()}});
+  input.addEventListener('change',function(){if(input.files&&input.files.length)_smartAddFiles(input.files);input.value=''});
+  dz.addEventListener('dragover',function(e){e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',function(){dz.classList.remove('dragover')});
+  dz.addEventListener('drop',function(e){
+    e.preventDefault();dz.classList.remove('dragover');
+    if(e.dataTransfer&&e.dataTransfer.files)_smartAddFiles(e.dataTransfer.files);
+  });
+  document.getElementById('smartClassifyBtn').addEventListener('click',function(){
+    if(!_smartFiles.length){_smartStatus('请先选择图片','error');return}
+    var btn=this;$busy(btn,true,'识别中...');
+    $API.upload('/api/smart-upload/classify',_smartFormData('classify')).then(function(r){
+      _renderSmartPlan(r.plan||[]);
+      _smartStatus('分类完成，确认后点「上传并分流」','ok');
+    }).catch(function(e){_smartStatus(e.message,'error')}).finally(function(){$busy(btn,false)});
+  });
+  document.getElementById('smartUploadBtn').addEventListener('click',function(){
+    if(!_smartFiles.length){_smartStatus('请先选择图片','error');return}
+    var btn=this;$busy(btn,true,'分流中...');
+    $API.upload('/api/smart-upload',_smartFormData('upload')).then(function(r){
+      _renderSmartResult(r);
+      _smartStatus('分流完成','ok');
+      $toast('智能上传完成','ok');
+      loadSessions();
+    }).catch(function(e){_smartStatus(e.message,'error')}).finally(function(){$busy(btn,false)});
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function(){
-  setupDrop();loadSessions();
+  setupDrop();loadSessions();setupSmartUpload();setupPdfImport();
   var initialSession=new URLSearchParams(location.search).get('session');
   if(initialSession&&/^[a-zA-Z0-9_-]{1,64}$/.test(initialSession)){resumeSession(initialSession)}
+  if(location.hash==='#smart'){
+    var el=document.getElementById('smart');
+    if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+  }
 });
+
+function setupPdfImport(){
+  var btn=document.getElementById('pdfImportBtn');
+  var input=document.getElementById('pdfFileInput');
+  if(!btn||!input)return;
+  btn.addEventListener('click',function(){input.click()});
+  input.addEventListener('change',function(){
+    var f=input.files&&input.files[0];
+    if(!f)return;
+    var fd=new FormData();
+    fd.append('file',f);
+    fd.append('title',document.getElementById('pdfTitle').value.trim());
+    fd.append('subject',document.getElementById('pdfSubject').value.trim());
+    fd.append('grade',document.getElementById('pdfGrade').value.trim());
+    fd.append('process',document.getElementById('pdfProcess').checked?'true':'false');
+    $busy(btn,true,'导入中...');
+    var st=document.getElementById('pdfImportStatus');
+    st.textContent='正在解析 PDF…';
+    $API.upload('/api/ocr/session/import-pdf',fd).then(function(r){
+      st.textContent=r.message||'导入完成';
+      st.style.color='var(--ok)';
+      $toast(r.message||'PDF 已导入','ok');
+      if(r.session_id)resumeSession(r.session_id);
+      loadSessions();
+    }).catch(function(e){
+      st.textContent=e.message||'导入失败';
+      st.style.color='var(--err)';
+      $toast(e.message,'error');
+    }).finally(function(){
+      $busy(btn,false);input.value='';
+    });
+  });
+}
 </script>
 {% endblock %}

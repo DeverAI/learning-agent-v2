@@ -146,6 +146,19 @@
 </div>
 
 <div class="card">
+  <div class="card-title">访问密码</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:10px">保护服务器上的题库与笔记。设置后，所有设备（含安卓 App）首次访问会提示输入密码；本机记住一次即可。留空新密码可关闭鉴权。</p>
+  <div class="row">
+    <div class="form-group"><label>当前密码</label><input type="password" id="pwdCurrent" placeholder="未设置时留空" autocomplete="current-password"></div>
+    <div class="form-group"><label>新密码</label><input type="password" id="pwdNew" placeholder="至少 4 位；留空关闭密码" autocomplete="new-password"></div>
+    <div class="form-group"><label>确认新密码</label><input type="password" id="pwdConfirm" placeholder="再输入一次" autocomplete="new-password"></div>
+  </div>
+  <button class="btn btn-primary" id="changePasswordBtn">保存密码</button>
+  <span style="font-size:12px;color:var(--text3);margin-left:8px" id="passwordStatus">-</span>
+  <p style="font-size:12px;color:var(--text3);margin-top:8px">改密成功后本机 token 会自动更新；其他设备需重新输入。若服务器用环境变量设密，请先去掉环境变量。</p>
+</div>
+
+<div class="card">
   <div class="card-title">每日一言主题</div>
   <p style="font-size:13px;color:var(--text2);margin-bottom:8px">AI会按此主题搜索历史上的今天，如孔子的诞辰则选孔子名言。留空则不限主题。</p>
   <div class="form-group"><label>主题偏好</label><select id="quoteTopic"><option value="">不限（综合搜索）</option><option value="国家与党史：革命先驱、建国历程、党的重大事件与人物">国家与党史</option><option value="科学与技术：科学家、发明家、重大科技突破、数学物理化学生物">科学与技术</option><option value="工程与创新：工程师、工业成就、建筑桥梁航天计算机">工程与创新</option><option value="人文与艺术：文学家、诗人、哲学家、艺术家、音乐家、历史人物">人文与艺术</option></select></div>
@@ -611,7 +624,49 @@
   document.getElementById('saveProfileBtn').addEventListener('click',saveProfile);
   document.getElementById('exportBtn').addEventListener('click',exportConfig);
   document.getElementById('userRole').addEventListener('change',onRoleChange);
-  document.addEventListener('DOMContentLoaded', function(){ init(); });
+  document.addEventListener('DOMContentLoaded', function(){ init(); loadPasswordStatus(); });
+
+  function loadPasswordStatus(){
+    window.$API.get('/api/settings/password/status').then(function(r){
+      var el=document.getElementById('passwordStatus');
+      if(el)el.textContent=r&&r.has_password?'已设置访问密码':'当前未设置访问密码';
+    }).catch(function(){});
+  }
+
+  document.getElementById('changePasswordBtn').addEventListener('click',function(){
+    var btn=this;
+    var cur=document.getElementById('pwdCurrent').value;
+    var neu=document.getElementById('pwdNew').value;
+    var conf=document.getElementById('pwdConfirm').value;
+    if(neu && neu.length<4){$toast('新密码至少 4 位','error');return}
+    if(neu!==conf){$toast('两次输入的新密码不一致','error');return}
+    if(!neu && !window._pwdClearAcked){
+      if(typeof $confirm==='function'){
+        $confirm('新密码留空将关闭访问密码，全站 API 不再校验。确定？',{title:'关闭鉴权',danger:true,okText:'确认关闭'}).then(function(ok){
+          if(ok){window._pwdClearAcked=true;doChangePassword(btn,cur,neu,conf)}
+        });
+        return;
+      }
+    }
+    doChangePassword(btn,cur,neu,conf);
+  });
+
+  function doChangePassword(btn,cur,neu,conf){
+    $busy(btn,true,'保存中...');
+    window.$API.post('/api/settings/password',{
+      current_password:cur,new_password:neu,confirm_new_password:conf
+    }).then(function(r){
+      $toast(r.message||'密码已更新','ok');
+      if(r.token && window.$API){ window.$API._authToken=r.token; try{localStorage.setItem('la_auth_token',r.token)}catch(e){} }
+      if(!r.has_password && window.$API){ window.$API._authToken=''; try{localStorage.removeItem('la_auth_token')}catch(e){} }
+      document.getElementById('pwdCurrent').value='';
+      document.getElementById('pwdNew').value='';
+      document.getElementById('pwdConfirm').value='';
+      loadPasswordStatus();
+    }).catch(function(e){
+      $toast('改密失败：'+(e&&e.message?e.message:'未知错误'),'error');
+    }).finally(function(){ $busy(btn,false); });
+  }
 
   function exportConfig(){
     var btn=document.getElementById('exportBtn');

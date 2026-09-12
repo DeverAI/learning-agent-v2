@@ -1,0 +1,23 @@
+{
+  "name": "米色",
+  "bg": "#faf8f5",
+  "surface": "#f5f0e8",
+  "text": "#3d3226",
+  "text_dim": "#a39680",
+  "accent": "#8b6914",
+  "accent_hover": "#6b5010",
+  "border": "#ddd5c5",
+  "border_light": "#ede8dd",
+  "bubble_user_bg": "rgba(139, 105, 20, 10)",
+  "bubble_ai_bg": "#ede8dd",
+  "scrollbar_handle": "#d5cec0",
+  "scrollbar_hover": "#b8ad9a",
+  "input_bg": "#ffffff",
+  "input_border": "#ddd5c5",
+  "input_focus": "#8b6914",
+  "code_bg": "#f0ece5",
+  "danger": "#c53030",
+  "danger_hover": "#9b2c2c",
+  "success": "#2f855a",
+  "warning": "#b7791f"
+}

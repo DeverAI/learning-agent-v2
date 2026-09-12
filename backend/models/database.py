@@ -219,6 +219,7 @@ async def init_db():
             ("capture_mode", "VARCHAR DEFAULT 'single_question'"),
             ("capture_group_id", "VARCHAR DEFAULT ''"),
             ("capture_index", "INTEGER DEFAULT 0"),
+            ("difficulty", "VARCHAR DEFAULT ''"),
         ]
         questions_result = await conn.run_sync(
             lambda c: _migrate_table_sync(c, "questions", questions_cols)

@@ -124,11 +124,19 @@ def _render_liquid_conical(level: float, w: int, h: int,
     # 液面顶部 y
     ly = h - liquid_h
 
-    # 计算该高度处的液面宽度（线性插值）
+    # 计算该高度处的液面宽度（按位置线性插值）
+    # 锥度方向：顶部(y=0)最窄 = top_w，底部(y=h)最宽 = bottom_w，与该函数上方注释
+    # 「从 (0,0) 向下 → (w, h) 最宽」一致。因此宽度应正比于 ly/h。
+    #
+    # 2026-09-11 修正：原为 `ratio = 1.0 - (ly / h)`，把锥度**插反了** —— 液少（贴瓶底、
+    # ly 大）反而算出接近瓶口的最窄宽度，快满（在细颈、ly 小）却算出接近瓶底的最宽宽度，
+    # 于是液面宽度与锥形轮廓相反，视觉上锥形瓶读成了直筒。这正是 FUTURE.md
+    #「锥形瓶液体计算公式验证」要查的那条。三种 level 的期望宽度已由探针
+    # backups/deploy_r5_20260911/_probe_conical.py 固定。
     top_w = int(w * 0.18)   # 瓶口宽
     bottom_w = w            # 瓶底宽
     if h > 0:
-        ratio = 1.0 - (ly / h)
+        ratio = ly / h
         current_w = int(top_w + (bottom_w - top_w) * ratio)
     else:
         current_w = top_w

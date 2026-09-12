@@ -746,3 +746,48 @@ WebView 远程壳（`android/`，包名 `com.learningagent.app`）的安全与�
 - 生命周期收尾（onDestroy）：未消费的 `filePathCallback` 置空、未决 `pendingWebPermissions` 逐个 deny 并清空、清理未消费拍照缓存；WebView 先 `stopLoading`、从视图树 removeView（`ViewGroup` 契约）再 `destroy()`。
 - `allowBackup=false`：WebView localStorage 中记住的站点访问密码不进系统云备份与设备迁移。
 - 版本号在 `android/app/build.gradle.kts` 的 `versionCode/versionName` 管理，发布前递增（当前 v1.3 / versionCode 4）。
+
+## N. 深检修复轮（2026-09-09/10）
+
+### 视觉链统一（vision_mimo_first）
+- 新增 `ai_service.vision_mimo_first(image_base64, prompt, mime_type, parse_json)`：xm_key 存在时 MiMo 优先（xiaomi_vision），失败/空结果回退 zhipuai_vision，双失败返回 None；返回形状与两个底层方法一致（parse_json=True 尽量 dict）。
+- 5 个旁路点替换：ocr.py `_split_and_process` 拆题判定、diagram_service 数学图复核/组件组装/装置复核、layout_service `_glm_review_image`。全仓对账后 `ai_service.zhipuai_vision` 仅剩统一入口内部与 note/face 自带 MiMo 前置的合规调用。
+- `_call_vision_model_async` 删除 Kimi 视觉兜底（无视觉输入必 400，FreqErr 教训），链终 ZhipuAI 失败返回 None。
+- 返回契约差异注意：xiaomi_vision 返回 str（parse_json=False）或 dict（True）；zhipuai_vision dict/str；调用方需按 isinstance 分支（拆题探针 `result.get(...) if isinstance(result, dict)` 保形）。
+
+### focus 失败段重试（M1）
+- `_generate_teaching_segment` 失败分支返回 `{"failed": True, ...}`（不再伪装"对吧"结尾）。
+- `_submit_checkpoint_locked` 入口检查目标段 failed：pop 后重新生成（新段 index = 原 index，因 pop 后 len 恰好回退），返回 `{"action": "retry", "segment": ...}`；不计 total/passed_checkpoints，不做表情分析/pause/simplify。
+- 前端 focus.js renderSegment 对 failed 段应用 `var(--err)` 斜体；提交后 action 分支与 continue 共用渲染路径（resp.segment 驱动），零额外前端改动。
+
+### banks 写锁（M2）
+- routers/banks.py 模块级 `_bank_write_lock = asyncio.Lock()`；tags/add、tags/remove、rename、delete 四端点读改写临界区包锁。选全局锁而非 per-bank：rename 跨两库会有锁序问题，且题库操作低频无吞吐需求（仿 focus_service 锁模式）。
+
+### worksheet 冻结题集（M3）
+- `generate_worksheet` 读取 params["question_ids"]（regenerate modify 注入）：去重保序后按 example_count 切分 example_ids/practice_ids（原卷 _save_paper 保存顺序即 [例题...,练习...]），跳过 _search_questions_for_worksheet；generation_warnings 追加"已冻结原卷题集"。笔记检索不受影响（question_ids 不含笔记）。
+- 边界：explicit_ids 为空走原检索路径；`not notes and not example_ids and not practice_ids` 的空数据 guard 仍在冻结分支之后生效。
+
+### 拆题失败留痕（M4）
+- 拆题判定包 2 次重试（vision_mimo_first 返回 None 或抛异常均重试）；最终失败 `_mark_split_fallback(question_id, reason)` 写任务状态文件 `split_fallback`/`split_fallback_reason`（幂等恢复窗口与排查可见；任务完成即随状态文件清除）。常驻用户可见告警需 DB 字段，登记待决策。
+
+### Agent 笔记图谱同步（M5）
+- sessions.py modify_note 的 content 分支 commit 后调用 `knowledge_graph.refresh_note_snippet(n.id, n.content)`——与 notes.py 正规更新链一致；title/subject/tags 不影响 snippet 不刷新。try/except + logger.warning（图谱故障不阻断回复）。
+
+### 配置健壮性（E1/E2）
+- config.load_settings 改 `utf-8-sig`：兼容外部工具写出的 BOM JSON；写侧（原子写 utf-8 无 BOM）不变。
+- main.password_guard：`if expected and not compare_digest(provided, expected)`——未配置密码=鉴权未启用=放行（既有契约显式化）；配置密码仍恒定时间比较。测试如需断言鉴权，monkeypatch main._get_auth_password 显式启用。
+
+### 前端清理（F1-F4）
+- agent.html '⚡'→'工'；questions.js 分页去箭头；diagnose.html 日志前缀改"警告：/提示："；lecture.js #c00→var(--err)、去 BOM；lecture.html #888→var(--text3)（主题契约扫描器连 var() 内 hex 兜底也拦，业务色引用不带兜底 hex）。
+
+### 服务器部署（2026-09-10）
+- 14 文件 scp（routers/ocr、banks、sessions、papers、main、config + services/ai_service、focus_service、paper_service、diagram_service、layout_service + static/js/focus.js、lecture.js、questions.js + templates/agent、diagnose、lecture、focus.js? 按最终 git status 为准）→ `_la_restart.ps1` → health 200。
+- 下载入口页 `/download`：APK + 桌面端 zip + PWA 说明；桌面端产物挂 `/downloads-desktop/`。
+
+## N+1. 服务器看门狗（2026-09-10）
+
+- **问题**：nssm 只兜"进程退出"，兜不住两类事故：进程被系统干掉后立即重启又立即死（无缓冲）、服务 RUNNING 但 HTTP 假死（此前发生过孤儿进程占 8000 与 WMI 拖死启动）。用户要求加看门狗。
+- **实现**：`ops/watchdog_learningagent.py`（仓库留档）部署到服务器 `C:\all_projects\watchdog_learningagent.py`，nssm 服务 **LearningWatchdog**（AppStdout/Stderr + 日志滚动 + AppExit Restart；脚本自身崩溃由 nssm 拉起，双层兜底）。逻辑：60s 周期探活 `/api/health`（3×10s）→ 非 RUNNING 直接 start；RUNNING 但连续失败 → 限流 restart（10min 冷却、连续 5 次熔断打 ALERT）；成功归零。`watchdog.pause` 旗标可暂停动作；netstat 端口占用只留痕不杀进程。
+- **配套加固**：`nssm set LearningAgent AppRestartDelay 5000`（被杀后 5s 再拉，避开端口释放窗口）。
+- **验证**：本地 --dry-run 决策路径通过；服务器 --once 真探活 ok；服务上下文连续周期 ok（69s 间隔）；LearningWatchdog/LearningAgent 双 RUNNING。运维开关：`type nul > C:\all_projects\watchdog.pause` 暂停，删除恢复。
+- **日志**：`C:\all_projects\watchdog_learningagent.log`（>1MB 自动截断留尾）。

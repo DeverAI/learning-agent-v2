@@ -16,7 +16,7 @@
   </div>
   <div class="card" style="padding:10px">
     <div style="font-weight:600;margin-bottom:6px">讲解步骤
-      <span id="lecPos" style="color:#888;font-weight:400"></span></div>
+      <span id="lecPos" style="color:var(--text3);font-weight:400"></span></div>
     <ol id="stepList" style="padding-left:20px;line-height:1.9"></ol>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button id="btnPrev" class="btn" onclick="LectureApp.prev()">上一步</button>
@@ -28,7 +28,19 @@
       </label>
     </div>
   </div>
-  <div id="lecStatus" style="color:#888;padding:8px 2px">就绪</div>
+  <div id="lecStatus" style="color:var(--text3);padding:8px 2px">就绪</div>
+  <div class="card" style="padding:10px;margin-top:10px">
+    <div style="font-weight:600;margin-bottom:6px">边看边问
+      <span style="font-size:12px;color:var(--text3);font-weight:400">（不打断朗读；问题会带上当前这一步的讲解内容作为上下文）</span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <input type="text" id="lecAskInput" placeholder="对当前这一步有疑问？例如：这一步为什么这样变形？"
+             style="flex:1;padding:8px"
+             onkeydown="if(event.key==='Enter')LectureApp.ask()">
+      <button class="btn btn-primary" id="btnAsk" onclick="LectureApp.ask()">问</button>
+    </div>
+    <div id="lecAskArea" style="margin-top:8px;font-size:13px;max-height:320px;overflow:auto"></div>
+  </div>
 </div>
 <script src="/static/js/lecture.js" defer></script>
 {% endblock %}

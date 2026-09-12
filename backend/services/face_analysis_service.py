@@ -37,6 +37,12 @@ DEFAULT_RESULT = {
     "indicators": [],
     "overall_state": "engaged",
     "suggestion": "continue",
+    # 2026-09-11 修正：这是**分析失败**时的兜底值——无图、超大 base64、非法图片格式、
+    # 视觉模型异常/空返回、以及任意异常，全部走到它（analyze_face 内 5 处 return）。
+    # 原先它没有失败标记，而 overall_state="engaged" 恰好落在上层"计为通过"的分支，
+    # 于是「不用摄像头 = 检查点必过 = 每节课掌握度固定 +0.1」，并写进长期记忆。
+    # 加 degraded 标记，让上层能区分"模型真的判为 engaged"与"根本没拿到数据"。
+    "degraded": True,
 }
 
 
@@ -217,4 +223,7 @@ def merge_emotion_report(face_report: dict, voice_features: dict) -> dict:
             "pause_count": pause_count,
         },
         "indicators": face_report.get("indicators", []),
+        # 任一侧是失败兜底（degraded）→ 合并结果同样标记为降级，
+        # 否则它会以"真实评估"的身份进入通过率与长期记忆（见 DEFAULT_RESULT 注释）。
+        **({"degraded": True} if face_report.get("degraded") else {}),
     }

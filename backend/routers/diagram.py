@@ -183,7 +183,10 @@ async def api_check_diagram_freshness(question_id: str, index: int):
     if index < 0 or index > 9_999:
         raise HTTPException(400, "非法的图索引")
     fresh = await diagram_service.check_diagram_freshness(question_id, index)
-    return {"fresh": fresh}
+    # R23：同一端点顺带返回质量自检结果（附加字段，旧前端只读 fresh 不受影响）。
+    # 挂在这里而不是新开端点：调用方拿到的就是「这张图现在到底行不行」。
+    issues = diagram_service.validate_diagram(question_id, index)
+    return {"fresh": fresh, "quality_ok": not issues, "quality_issues": issues}
 
 
 @router.get("/api/diagram/spec/{question_id}/{index}")

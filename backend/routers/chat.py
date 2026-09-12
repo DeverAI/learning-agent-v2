@@ -94,9 +94,14 @@ async def global_chat(req: ChatMsg):
             except Exception as e:
                 logger.warning("chat save_paper_config failed: %s", e)
         async with async_session() as db:
-            r = await db.execute(select(Question.id).where(Question.status == "done").limit(5))
-            qids = [row[0] for row in r.fetchall()]
-        hint = f"（题库中已有{len(qids)}道可用题目）" if qids else ""
+            # 原先用 select(...id).limit(5) 取"有没有题"，却把 len(qids)（恒 <=5）当成题库总量
+            # 拼进用户可见文案 → 题库超过 5 题后永远显示「已有5道」。改为真实计数。
+            from sqlalchemy import func as _sa_func
+            r = await db.execute(
+                select(_sa_func.count()).select_from(Question).where(Question.status == "done")
+            )
+            q_count = int(r.scalar() or 0)
+        hint = f"（题库中已有{q_count}道可用题目）" if q_count else ""
         jump = f"/papers/generate?saved_config={cid}" if cid else "/papers/generate"
         return {"reply": f"组卷参数已就绪{hint}，已保存（#{cid[:6] if cid else '...'}）。点击下方卡片跳转组卷。",
                 "action": {"type": "jump_paper", "data": idata, "saved_config": cid}}
@@ -423,6 +428,16 @@ async def global_chat(req: ChatMsg):
                 logger.warning("Global agent self-review failed for %s: %s", fq.id, exc)
                 review = {}
                 q_html = ans.get("question_html", "")
+            # 守卫前移（FreqErr [悬挂产物]）：下面紧接着 L437 会写 audit_flags、L453 会往
+            # 题目目录落盘 diagram_*.svg，而原有的锁定判定要到后面重读 current 时才做——
+            # 两者之间隔着 AI 调用的数十秒窗口。用户在此期间点「锁定」，结果是正文写入被
+            # 正确丢弃，但 audit_flags 与 SVG 文件**已经落盘且不会回滚**，形成
+            # 「文件在盘上、DB 不认」的悬挂产物。故在首个副作用之前重读一次状态。
+            async with _db_session() as _db_guard:
+                _guard_q = await _db_guard.get(_Q, fq.id)
+                if not _guard_q or _guard_q.is_resolved or _guard_q.status != "done":
+                    replies.append(f"**{fq.subject}{fq.grade} - {fq.id[:8]}** 状态已变化，未写入任何改动。")
+                    continue
             from services.question_challenge import combine_question_challenges
             from services.audit_service import set_question_challenge
             challenge = combine_question_challenges(

@@ -7,11 +7,12 @@ import shutil
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, Text
+from sqlalchemy import select, or_, Text, func
 from pydantic import BaseModel, Field
 from models.database import get_db
 from models.models import Question, ProcessingTask, gen_id
 from services.ocr_service import ocr_service
+from services.upload_guard import read_upload_limited
 from services.ai_service import ai_service
 from services.capture_modes import (
     MAX_CAPTURE_IMAGES,
@@ -25,6 +26,12 @@ MAX_SEARCH_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_SEARCH_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 BANK_NAME_RE = re.compile(r"^[\w\-\u4e00-\u9fa5]{1,32}$")
 MATCH_THRESHOLDS = {"text": 0.60, "ai": 0.70, "hybrid": 0.75}
+# 相似题检索的规模策略（FUTURE.md「优化方向」登记项）：
+# 逐条 _text_similarity 走 difflib.SequenceMatcher，是**同步**计算且复杂度不低；
+# 题库规模小的时候全量精排最保召回，破千后必须先用学科/年级做 SQL 前置过滤，
+# 并给候选集加硬上限，否则一次搜题会把事件循环占住、拖慢所有接口。
+_SIMILARITY_BANK_THRESHOLD = 1000     # 超过此规模才启用前置过滤
+_SIMILARITY_CANDIDATE_LIMIT = 1200    # 单次比对候选数硬上限
 
 
 class AddToBankRequest(BaseModel):
@@ -80,12 +87,13 @@ async def _get_search_mode() -> str:
 async def _read_search_image(file: UploadFile) -> tuple[bytes, str, str]:
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, detail="请上传图片文件（JPG/PNG/WEBP）")
-    # 统一使用 await file.read()，先限后验，与 ocr.py 一致
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(400, detail="上传图片为空")
-    if len(raw) > MAX_SEARCH_IMAGE_SIZE:
-        raise HTTPException(413, detail="单张图片不能超过 10MB")
+    # 分块读 + 累计上限（FUTURE.md 优化方向）：原为「先全量 read 后验大小」，
+    # 判定只是事后拒绝、内存峰值已经发生。与 ocr.py / correction.py 共用同一实现。
+    raw = await read_upload_limited(
+        file, MAX_SEARCH_IMAGE_SIZE,
+        too_large_detail="单张图片不能超过 10MB",
+        empty_detail="上传图片为空",
+    )
     if not _has_supported_image_signature(raw):
         raise HTTPException(400, detail="文件内容不是有效的 JPG、PNG 或 WEBP 图片")
     ext = (os.path.splitext(file.filename or "image.jpg")[1] or ".jpg").lower()
@@ -290,7 +298,7 @@ async def _find_matches(db: AsyncSession, query_id: str, mode: str = None, top_k
     query_tags = set(q.knowledge_tags or [])
 
     # 候选：已完成的正式题目，排除其他搜题临时记录
-    stmt = (
+    base_stmt = (
         select(Question.id, Question.ocr_text, Question.question_html,
                Question.subject, Question.grade, Question.knowledge_tags,
                Question.raw_image_path)
@@ -304,8 +312,29 @@ async def _find_matches(db: AsyncSession, query_id: str, mode: str = None, top_k
                    ~Question.source_type.in_(["search_query", "correction_query"])))
         .order_by(Question.created_at.desc())
     )
-    result = await db.execute(stmt)
-    rows = result.fetchall()
+
+    bank_size = int((await db.execute(
+        select(func.count()).select_from(Question).where(Question.status == "done")
+    )).scalar() or 0)
+
+    stmt = base_stmt
+    narrowed = False
+    if bank_size > _SIMILARITY_BANK_THRESHOLD:
+        if query_subject:
+            stmt = stmt.where(Question.subject == query_subject)
+            narrowed = True
+        if query_grade:
+            stmt = stmt.where(Question.grade == query_grade)
+            narrowed = True
+    stmt = stmt.limit(_SIMILARITY_CANDIDATE_LIMIT)
+
+    rows = (await db.execute(stmt)).fetchall()
+    if not rows and narrowed:
+        # 前置过滤过严（学科/年级标注缺失或标错）→ 回退到不限科级的最近 N 条。
+        # 宁可慢一次，也不能给用户「一道相似的都找不到」。
+        rows = (await db.execute(
+            base_stmt.limit(_SIMILARITY_CANDIDATE_LIMIT)
+        )).fetchall()
 
     candidates = []
     for row in rows:

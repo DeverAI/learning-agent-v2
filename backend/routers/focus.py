@@ -51,7 +51,11 @@ class FocusStartRequest(BaseModel):
 class CheckpointRequest(BaseModel):
     voice_text: str = Field(default="", max_length=5000)
     emotion_report: Optional[dict] = Field(default=None)
-    webcam_image: str = Field(default="", max_length=3_000_000)  # Base64 ~2MB
+    # 必须允许 None：前端 captureFace() 在"无摄像头 API / getUserMedia 抛错 / 5s 超时 /
+    # 视频加载失败"时返回 null（static/js/focus.js:571/611），并直接赋给 webcam_image
+    # 再 JSON 序列化发出（:639/:649）。原声明是非 Optional 的 str，收到 null 会 422 →
+    # "摄像头不可用不影响提交"这一降级承诺反而变成**恒定提交失败**，学生无路可走。
+    webcam_image: Optional[str] = Field(default="", max_length=3_000_000)  # Base64 ~2MB
     voice_features: Optional[dict] = Field(default=None)
     segment_index: Optional[int] = Field(default=None)  # 响应的讲解段序号（幂等防护）
 
@@ -115,7 +119,7 @@ async def api_focus_checkpoint(session_id: str, req: CheckpointRequest):
             session_id=session_id,
             voice_text=req.voice_text,
             emotion_report=req.emotion_report,
-            webcam_image=req.webcam_image,
+            webcam_image=req.webcam_image or "",  # None 归一化为空串，供 analyze_face 走降级路径
             voice_features=req.voice_features,
             segment_index=req.segment_index,
         )
@@ -226,7 +230,17 @@ async def api_focus_board_asset(session_id: str, name: str):
         raise HTTPException(400, str(e))
     if not os.path.isfile(path):
         raise HTTPException(404, "板书资源不存在")
-    resp = FileResponse(path, media_type="image/svg+xml")
+    # F7 修复：资产后缀白名单同时允许 `.svg` 与 `.jpg/.png/.jpeg`（"引用原题图"走后者），
+    # 而原实现对所有资产统一声明 `image/svg+xml`，并叠加 `nosniff` → JPEG/PNG 字节被当作
+    # SVG 处理，浏览器大概率拒绘，于是"引用原题照片"这条路径实际不可用。
+    # 改为按真实后缀给出 media type；未知后缀退回通用二进制。
+    _asset_media = {
+        ".svg": "image/svg+xml",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+    }.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
+    resp = FileResponse(path, media_type=_asset_media)
     resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp

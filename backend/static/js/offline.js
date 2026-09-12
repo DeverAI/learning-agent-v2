@@ -15,7 +15,7 @@
   var GET_CACHE_PREFIXES = [
     '/api/questions', '/api/papers', '/api/notes', '/api/banks',
     '/api/profile', '/api/daily-quote', '/api/system-messages',
-    '/api/knowledge-graph',
+    '/api/knowledge-graph', '/api/lessons',
   ];
   // 上传/提交队列白名单（离线入队，联网重放；其余写操作离线直接提示失败）
   var QUEUE_POST_PREFIXES = [
@@ -261,4 +261,16 @@
       scheduleReplay();
     },
   };
+
+  // 自动启动。此前 _start 全仓零调用点（只有定义），导致：
+  //   ① online/offline 的网络状态提示永不触发；
+  //   ② 上次会话遗留的上传队列在重开应用后不会自动补传——scheduleReplay 只在
+  //      enqueueRequest 里被被动调用，必须先有一次新入队才会开始轮询。
+  // 本文件由 base.html 在 enable_offline 为真时以 defer 引入，启动时机安全；
+  // $toast 未就绪时 _start 内部已有 typeof 守卫。
+  try {
+    window._offline._start();
+  } catch (e) {
+    if (typeof console !== 'undefined' && console.warn) console.warn('offline layer start failed:', e);
+  }
 })();

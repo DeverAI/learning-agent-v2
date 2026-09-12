@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from models.database import get_db
 from models.models import Question
 from services import correction_service
+from services.upload_guard import read_upload_limited
 from services.correction_service import _safe_correction_error
 from schemas.schemas import CorrectionResponse, CorrectionListItem, CorrectionHistoryItem
 from logger import get_logger, log_error
@@ -62,11 +63,11 @@ async def _validate_image(file: UploadFile) -> tuple[bytes, str]:
     """读取并校验上传图片，返回 (raw_bytes, extension)。"""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, detail="请上传图片文件（JPG/PNG/WEBP）")
-    raw_bytes = await file.read()
-    if not raw_bytes:
-        raise HTTPException(400, detail="图片不能为空")
-    if len(raw_bytes) > MAX_CORRECTION_IMAGE_SIZE:
-        raise HTTPException(413, detail="图片大小超过 10MB 限制")
+    raw_bytes = await read_upload_limited(
+        file, MAX_CORRECTION_IMAGE_SIZE,
+        too_large_detail="图片大小超过 10MB 限制",
+        empty_detail="图片不能为空",
+    )
     if not _has_supported_image_signature(raw_bytes):
         raise HTTPException(400, detail="文件内容不是有效的 JPG、PNG 或 WEBP 图片")
     ext = _safe_ext(file.filename)

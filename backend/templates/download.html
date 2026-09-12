@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:760px;margin:0 auto;padding:14px">
+  <h2 style="margin:4px 0 10px">客户端下载</h2>
+
+  <div class="card" style="padding:14px;margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:4px">安卓应用（APK）</div>
+    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
+      学习搭子 Android 客户端：WebView 壳 + 原生 TTS 讲课桥 + 原生语音识别桥 + 相机/麦克风授权。
+      {% if dl.apk.version_text %}当前版本 {{ dl.apk.version_text }}（读取自构建脚本）。{% endif %}
+      首次打开需要填写服务器地址（本站在浏览器里的地址）。
+    </p>
+    {% if dl.apk.exists %}
+    <a class="btn btn-primary" style="display:inline-block;padding:10px 18px;margin-top:6px"
+       href="/static/downloads/{{ dl.apk.filename }}" download>下载 APK（{{ dl.apk.size_text }}）</a>
+    <span style="margin-left:10px;color:var(--text3);font-size:var(--fs-xs)">
+      包内实际文件：{{ dl.apk.filename }}，构建日期 {{ dl.apk.date_text }}
+    </span>
+    {% else %}
+    <p style="margin:6px 0;color:var(--err);font-size:var(--fs-sm)">
+      APK 文件不在服务器上（{{ dl.apk.filename }}），下载入口暂不可用。
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:14px;margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:4px">桌面端（Windows，PyQt）</div>
+    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
+      文化课桌面工具：课堂监听与 AI 补讲、讲题引擎、TTS 朗读、屏幕标注；
+      课堂笔记可经「设置 - 成果互通」同步到本服务器的笔记页。
+      需要 Python 3.10+，解压后 <code>pip install -r requirements.txt</code>，运行 <code>python main.py</code>。
+    </p>
+    {% if dl.desktop.exists %}
+    <a class="btn btn-primary" style="display:inline-block;padding:10px 18px;margin-top:6px"
+       href="/static/downloads/{{ dl.desktop.filename }}" download>下载桌面端（{{ dl.desktop.size_text }}，源码包）</a>
+    <span style="margin-left:10px;color:var(--text3);font-size:var(--fs-xs)">
+      包内实际文件：{{ dl.desktop.filename }}，打包日期 {{ dl.desktop.date_text }}
+    </span>
+    {% else %}
+    <p style="margin:6px 0;color:var(--err);font-size:var(--fs-sm)">
+      桌面端压缩包不在服务器上（{{ dl.desktop.filename }}），下载入口暂不可用。
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:14px;margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:4px">网页版 / PWA（免安装）</div>
+    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
+      手机或电脑浏览器直接打开本站即可使用全部功能；支持「添加到主屏幕」作为 PWA 安装。
+      讲课入口：侧边栏「讲课」。
+    </p>
+  </div>
+
+  <p style="color:var(--text3);font-size:var(--fs-xs);margin:8px 2px">
+    下载文件由服务器静态目录直出。
+    页面上的体积与日期由服务器<b>读取磁盘上的实际文件</b>生成，不是手写的，
+    所以不会出现「页面写着新版本、实际下载到旧包」。
+  </p>
+</div>
+{% endblock %}

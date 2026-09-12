@@ -193,8 +193,8 @@
       log('has_kimi: '+s.has_kimi, s.has_kimi?'ok':'warn');
       log('ds_model: '+s.deepseek_model);
       log('ai_timeout: '+s.ai_timeout+'s');
-      if(!s.has_deepseek)log('  → DeepSeek Key 未配置！请在设置页面填入','error');
-      if(!s.has_zhipuai)log('  → GLM Key 未配置！推荐配置（免费GLM-4V-Flash做OCR）','warn');
+      if(!s.has_deepseek)log('警告：DeepSeek Key 未配置！请在设置页面填入','error');
+      if(!s.has_zhipuai)log('提示：GLM Key 未配置！推荐配置（免费GLM-4V-Flash做OCR）','warn');
     }catch(e){log('设置读取失败: '+e.message,'error')}
 
     // 2. API 真实调用测试

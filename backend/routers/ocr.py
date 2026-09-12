@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from models.database import get_db
+from models.database import async_session
 from models.models import Question, ProcessingTask, gen_id
 from services.ocr_service import ocr_service
+from services.upload_guard import read_upload_limited
 from services.ai_service import ai_service
 from services.tag_unification_service import canonicalize_tags
 from services.upload_session_service import summarize_upload_session
@@ -117,11 +119,11 @@ async def _read_image_upload(file: UploadFile) -> tuple[bytes, str]:
     ext = os.path.splitext(file.filename or "image.jpg")[1].lower() or ".jpg"
     if not content_type.startswith("image/") or ext not in ALLOWED_IMAGE_EXTS:
         raise HTTPException(400, detail="仅支持 JPG、PNG 或 WEBP 图片")
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(400, detail="上传图片为空")
-    if len(raw) > MAX_IMAGE_SIZE:
-        raise HTTPException(413, detail="单张图片不能超过 10MB")
+    raw = await read_upload_limited(
+        file, MAX_IMAGE_SIZE,
+        too_large_detail="单张图片不能超过 10MB",
+        empty_detail="上传图片为空",
+    )
     if not _has_supported_image_signature(raw):
         raise HTTPException(400, detail="文件内容不是有效的 JPG、PNG 或 WEBP 图片")
     return raw, ext
@@ -740,6 +742,28 @@ async def process_single(
     return {"message": "已加入处理队列", "question_id": question_id}
 
 
+def _mark_split_fallback(question_id: str, reason: str):
+    """拆题失败降级单题时，在任务状态文件留下可见标记（排查/续跑窗口可见）。
+
+    任务正常完成后状态文件会被 _clear_task_state 清除；常驻的用户可见
+    告警需要 DB 字段或任务面板支持（done.md 登记，待产品决策）。
+    """
+    try:
+        state_path = os.path.join(TASK_STATE_DIR, f"{question_id}.json")
+        data = {}
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, IOError, OSError):
+                data = {}
+        data["split_fallback"] = True
+        data["split_fallback_reason"] = (reason or "")[:200]
+        _atomic_write_json(state_path, data)
+    except Exception as exc:
+        logger.warning("Failed to mark split fallback for %s: %s", question_id, exc)
+
+
 async def _split_and_process(question_id: str, user_hint: str,
                              user_tags: list, user_grade: str, bank: str,
                              session_id: str = ""):
@@ -767,12 +791,26 @@ async def _split_and_process(question_id: str, user_hint: str,
             # 保留多图信息，回退单题处理时仍需完整图片集
             q_multi_images = getattr(q, "multi_images", None)
 
-        result = await ai_service.zhipuai_vision(img_b64,
-            '判断图片中是否含多道独立题目。注意：不要将大板块标题（如\u201c一、追寻碳的足迹\u201d）当成题目。'
-            "对于化学等学科，需要判断每道小题是否需要大标题作为背景支撑，需要的话将背景文本合并到小题中。"
-            "不要计算答案。还要判断整页的学科、年级和知识点。输出JSON: "
-            '{"has_multiple":bool,"subject":"学科","grade":"年级","knowledge_tags":["知识点"],'
-            '"questions":[{"index":1,"text":"题目内容（含所需背景上下文）","needs_context":bool}]}')
+        # 拆题判定（MiMo-first，Fact.md 模型分工定规）；失败共尝试 2 次（初试+1 重试）
+        result = None
+        for _attempt in (1, 2):
+            try:
+                result = await ai_service.vision_mimo_first(img_b64,
+                    '判断图片中是否含多道独立题目。注意：不要将大板块标题（如\u201c一、追寻碳的足迹\u201d）当成题目。'
+                    "对于化学等学科，需要判断每道小题是否需要大标题作为背景支撑，需要的话将背景文本合并到小题中。"
+                    "不要计算答案。还要判断整页的学科、年级和知识点。输出JSON: "
+                    '{"has_multiple":bool,"subject":"学科","grade":"年级","knowledge_tags":["知识点"],'
+                    '"questions":[{"index":1,"text":"题目内容（含所需背景上下文）","needs_context":bool}]}')
+                if result is not None:
+                    break
+                logger.warning("Split detection attempt %d returned empty for %s", _attempt, question_id)
+            except Exception as e:
+                if _attempt == 2:
+                    raise
+                logger.warning("Split detection attempt %d failed for %s: %s", _attempt, question_id, str(e)[:200])
+        if result is None:
+            # 重试后仍无结果：与调用失败同路处理（降级单题 + 留痕），不做静默分支
+            raise RuntimeError("split detection returned empty after 2 attempts")
         items = result.get("questions", []) if isinstance(result, dict) and result.get("has_multiple") else []
         items = [item for item in items if isinstance(item, dict) and str(item.get("text", "")).strip()]
 
@@ -786,6 +824,18 @@ async def _split_and_process(question_id: str, user_hint: str,
     except Exception as e:
         log_error("ocr.split", f"Split detection failed for {question_id}: {e}")
         logger.warning("Split detection failed for %s, processing as one question: %s", question_id, e, exc_info=True)
+        _mark_split_fallback(question_id, str(e)[:200])
+        # 同时写进 DB 的 audit_flags —— 状态文件那份在任务正常完成时会被
+        # _clear_task_state 删掉，只有 DB 这份能活到用户看见。
+        # 用户现象：上传一整页 5 道题，结果只出 1 道（题干是整页），此前没有任何提示。
+        try:
+            from services.audit_service import flag_question
+            await flag_question(question_id, "split_fallback",
+                                f"整页切题未成功（{str(e)[:120]}），已按单题处理。"
+                                f"这一条可能是整页多题，建议核对后手动拆题。", auto=True)
+        except Exception as flag_exc:
+            # 留痕失败不能拖垮识别本身，但必须记下来（否则又变回静默）
+            log_error("ocr.split", f"Failed to write split_fallback flag for {question_id}: {flag_exc}")
         await ocr_service.process_image(question_id, user_hint, user_tags, user_grade,
                                         multi_images=q_multi_images)
         return
@@ -965,6 +1015,153 @@ async def create_session(
                           grade=grade, notes=notes, status="open"))
     await db.commit()
     return {"session_id": sid, "message": f"已创建上传会话: {title or '未命名试卷'}"}
+
+
+@router.post("/session/import-pdf")
+async def session_import_pdf(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    subject: str = Form(""),
+    grade: str = Form(""),
+    process: bool = Form(default=False),
+    db: AsyncSession = Depends(get_db)
+):
+    """电子版真题/试卷 PDF 导入整卷会话。
+
+    诚实边界（用户已确认材料形态之②）：
+    - **文字版 PDF**：pypdf 抽出每页文本 → 每页一道 staged 题（ocr_text 已填）；
+      process=true 时按 skip_ocr 走解题/示意图，不再二次 OCR。
+    - **扫描版 PDF**：抽不出文字 → **明确失败**，指引改走拍照/智能上传，
+      不生成空壳题目假装成功。
+    """
+    import io as _io
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(400, "请上传 PDF 文件")
+    raw = await file.read()
+    if not raw or len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(413, "PDF 为空或超过 50MB")
+
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise HTTPException(503, "PDF 解析组件未安装，请安装 requirements 后重试")
+
+    try:
+        reader = PdfReader(_io.BytesIO(raw))
+    except Exception as exc:
+        raise HTTPException(400, f"PDF 无法解析：{exc}") from exc
+    if len(reader.pages) == 0:
+        raise HTTPException(400, "PDF 没有页面")
+    if len(reader.pages) > 60:
+        raise HTTPException(400, f"一次最多导入 60 页（当前 {len(reader.pages)} 页），请分卷上传")
+
+    pages_text: list[str] = []
+    for page in reader.pages:
+        try:
+            pages_text.append((page.extract_text() or "").strip())
+        except Exception:
+            pages_text.append("")
+
+    nonempty = sum(1 for t in pages_text if t)
+    if nonempty == 0:
+        raise HTTPException(
+            400,
+            "这份 PDF 抽不出文字（多半是扫描版）。"
+            "请用手机拍照走「智能上传 / 整卷上传」，或提供文字版 PDF。",
+        )
+
+    from models.models import UploadSession
+    sid = gen_id()
+    base_title = (title or "").strip()
+    if not base_title:
+        base_title = os.path.splitext(os.path.basename(filename))[0][:80] or "PDF导入试卷"
+
+    ids: list[str] = []
+    folders: list[str] = []
+    try:
+        for i, text in enumerate(pages_text):
+            if not text:
+                continue
+            qid = gen_id()
+            folder = os.path.join(QUESTIONS_DIR, qid)
+            os.makedirs(folder, exist_ok=False)
+            folders.append(folder)
+            note_path = os.path.join(folder, "source.txt")
+            with open(note_path, "w", encoding="utf-8") as w:
+                w.write(f"来源：PDF 导入 第 {i + 1} 页\n\n{text[:50000]}")
+            db.add(Question(
+                id=qid, folder_path=folder,
+                subject=subject, grade=grade,
+                status="staged",
+                ocr_text=text[:50000],
+                bank="default",
+                source_type="pdf_page",
+                capture_mode="single_question",
+                capture_group_id=sid,
+                capture_index=len(ids),
+                raw_image_path="",
+            ))
+            ids.append(qid)
+        if not ids:
+            raise HTTPException(400, "各页都未提取到文字，无法导入")
+        db.add(UploadSession(
+            id=sid, title=base_title, subject=subject, grade=grade,
+            status="open", question_ids=ids,
+            notes=f"PDF 导入：{filename}，{len(reader.pages)} 页中有文字 {len(ids)} 页",
+        ))
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        for folder in folders:
+            if os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+        raise
+    except Exception as exc:
+        await db.rollback()
+        for folder in folders:
+            if os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+        log_error("ocr.import_pdf", str(exc)[:200])
+        raise HTTPException(500, "PDF 导入失败") from exc
+
+    processed = 0
+    if process:
+        from services import ocr_service as _ocs
+        for qid in ids:
+            try:
+                async with async_session() as _db:
+                    _q = await _db.get(Question, qid)
+                    _text = (_q.ocr_text or "") if _q else ""
+                desc = {
+                    "question_id": qid, "type": "process_image",
+                    "user_hint": "", "tags": [], "user_grade": grade,
+                    "bank": "default", "session_id": sid,
+                }
+                _save_task_state(desc)
+                _run_bg(
+                    _ocs.process_image(
+                        qid, "", [], grade,
+                        skip_ocr=True,
+                        existing_ocr_text=_text,
+                        existing_subject=subject,
+                        existing_grade=grade,
+                    ),
+                    desc,
+                )
+                processed += 1
+            except Exception as exc:
+                log_error("ocr.import_pdf_bg", f"{qid} {exc}"[:200])
+
+    return {
+        "session_id": sid,
+        "total_pages": len(reader.pages),
+        "imported_questions": len(ids),
+        "empty_pages": len(reader.pages) - len(ids),
+        "processing": processed,
+        "message": f"已导入 {len(ids)} 页文字题"
+                   + ("，并开始解题" if process else "；点「处理」后生成解答"),
+    }
 
 
 @router.post("/session/{session_id}/upload")

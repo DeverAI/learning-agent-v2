@@ -146,7 +146,7 @@
 
 <!-- 笔记详情 Modal -->
 <div class="modal-overlay" id="noteModal" style="display:none" onclick="if(event.target===this)closeNoteModal()">
-  <div class="modal" style="max-width:800px">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="noteModalTitle" style="max-width:800px">
     <div class="detail-hd">
       <h2 id="noteModalTitle" style="margin:0"></h2>
       <div class="detail-actions">
@@ -598,7 +598,7 @@ function openNote(noteId){
     // Typical questions tab
     var qs = n.typical_questions||[];
     var qDiv = document.getElementById('tab-note-questions');
-    qDiv.innerHTML = qs.length ?
+    var typicalHtml = qs.length ?
       qs.map(function(q,i){
         return '<div class="typical-q"><div class="q-stem">例题 '+(i+1)+': '+$esc(q.stem)+'</div>'+
           (q.answer?'<div class="q-answer"><b>答案:</b> '+$esc(q.answer)+'</div>':'')+
@@ -606,6 +606,20 @@ function openNote(noteId){
           '</div>';
       }).join('') :
       '<p style="padding:8px;color:var(--text2)">暂无典型例题（AI 未从上传图片中提取到题目）</p>';
+    // R24：关联题库题目（来自 question_ids）。此前这一栏只看 typical_questions，
+    // 于是从题库「存笔记」建的笔记在这一栏**是空的** —— 题目 → 笔记有去无回。
+    var linked = n.questions||[];
+    var linkedHtml = linked.length ?
+      ('<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;margin-bottom:4px">关联题库题目（'+linked.length+'）</div>'+
+        linked.map(function(q){
+          var tags=(q.knowledge_tags||[]).map(function(t){return $esc(t)}).join('、');
+          return '<div class="typical-q" style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between">'+
+            '<div style="min-width:0"><div class="q-stem">'+$esc((q.subject||'')+' '+(q.grade||''))+' '+$esc(q.ocr_text||'')+'</div>'+
+            (tags?'<div style="font-size:11px;color:var(--text3)">'+tags+'</div>':'')+'</div>'+
+            '<button class="btn btn-sm" style="flex-shrink:0" onclick="window.open(\'/questions?qid='+encodeURIComponent(q.id)+'\',\'_blank\')">查看</button>'+
+            '</div>';
+        }).join('')+'</div>') : '';
+    qDiv.innerHTML = typicalHtml + linkedHtml;
 
     // Source images tab
     var srcs = n.source_images||[];
@@ -823,7 +837,17 @@ async function aiGenerateNotes(btn){
 }
 
 // ===== Init =====
-document.addEventListener('DOMContentLoaded', function(){ loadNotes(); });
+document.addEventListener('DOMContentLoaded', function(){
+  loadNotes();
+  // R23 深链：题库「存笔记」后跳到 /notes?note=<id> 要能直接打开那一篇，
+  // 否则那个跳转就是一句空话（落地到列表页，学生还得自己找）。
+  try{
+    var want=new URLSearchParams(location.search).get('note');
+    if(want&&typeof openNote==='function'){
+      setTimeout(function(){ openNote(want); }, 80);
+    }
+  }catch(e){}
+});
 </script>
 {% endblock %}
 

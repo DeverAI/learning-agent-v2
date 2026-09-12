@@ -66,6 +66,7 @@
       <input type="text" id="addBankName" list="bankDatalist" value="default">
       <datalist id="bankDatalist"></datalist>
       <button class="btn btn-primary btn-sm" id="addToBankBtn">加入题库</button>
+      <button class="btn btn-sm" id="ocrToNoteBtn" onclick="if(window.saveOcrToNote)window.saveOcrToNote()" title="把识别到的文字先存成笔记">识别文本存笔记</button>
     </div>
   </div>
 </div>
@@ -304,10 +305,14 @@
             '<a class="btn btn-sm btn-primary" href="/questions?qid=' + encodeURIComponent(qid) + '">查看详情</a>' +
             '<a class="btn btn-sm" href="/questions?qid=' + encodeURIComponent(qid) + '&tab=chat">问 AI</a>' +
             '<button class="btn btn-sm btn-warn" data-correct-qid="' + qid + '">批改此题</button>' +
+            '<button class="btn btn-sm" data-note-qid="' + qid + '">存笔记</button>' +
           '</div>' +
         '</div>';
       el.querySelector('[data-correct-qid]').addEventListener('click', function(){
         correctThis(this.getAttribute('data-correct-qid'));
+      });
+      el.querySelector('[data-note-qid]').addEventListener('click', function(){
+        saveMatchToNote(this.getAttribute('data-note-qid'), this);
       });
       container.appendChild(el);
     });
@@ -359,6 +364,82 @@
       if(btn) $busy(btn, false);
     });
   }
+
+  // 搜题匹配结果 → 笔记（确定性搬运，与题库「存笔记」同一契约）
+  function _plainText(s){
+    return String(s==null?'':s)
+      .replace(/<br\s*\/?>/gi,'\n')
+      .replace(/<\/[pP]>|<\/div>|<\/li>/g,'\n')
+      .replace(/<[^>]+>/g,'')
+      .replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/&amp;/g,'&').replace(/&quot;/g,'"')
+      .replace(/\n{3,}/g,'\n\n').trim();
+  }
+
+  function saveMatchToNote(qid, btn){
+    if(!qid)return;
+    if(btn)$busy(btn,true,'存入中...');
+    window.$API.get('/api/questions/'+encodeURIComponent(qid)).then(function(q){
+      var stem=_plainText(q.question_html||q.ocr_text||'');
+      var ans=_plainText(q.answer_html||q.standard_answer||'');
+      var head=(q.subject||'')+(q.grade||'');
+      var title=(head?head+' · ':'')+'搜题笔记 · '+(stem.replace(/\s+/g,' ').slice(0,24)||qid.slice(0,8));
+      var parts=['[[QUESTION:'+qid+']]'];
+      if(stem)parts.push('## 题干\n'+stem);
+      if(ans)parts.push('## 标准答案\n'+ans);
+      if(q.knowledge_tags&&q.knowledge_tags.length)parts.push('知识点：'+q.knowledge_tags.join('、'));
+      return window.$API.post('/api/notes',{
+        title:title.slice(0,60), content:parts.join('\n\n'),
+        subject:q.subject||'', grade:q.grade||'',
+        knowledge_tags:q.knowledge_tags||[], question_ids:[qid]
+      }).then(function(r){
+        var nid=(r&&r.id)||'';
+        if(!nid)return {id:''};
+        var refName='题目 '+(stem.replace(/\s+/g,' ').slice(0,18)||qid.slice(0,8));
+        return window.$API.post('/api/notes/'+encodeURIComponent(nid)+'/references',
+          {references:[{type:'question', id:qid, name:refName}]})
+          .then(function(){return {id:nid, ref_ok:true}})
+          .catch(function(){return {id:nid, ref_ok:false}});
+      });
+    }).then(function(r){
+      if(btn)$busy(btn,false);
+      var id=(r&&r.id)||'';
+      $toast(r&&r.ref_ok===false?'已存入笔记（题目引用未登记）':'已存入笔记',r&&r.ref_ok===false?'warn':'ok');
+      if(id&&typeof $confirm==='function'){
+        $confirm('已创建笔记，去笔记页打开吗？',{title:'存入成功',okText:'去笔记页'}).then(function(go){
+          if(go)window.location.href='/notes?note='+encodeURIComponent(id);
+        });
+      }
+    }).catch(function(e){
+      if(btn)$busy(btn,false);
+      $toast('存笔记失败：'+(e&&e.message?e.message:'未知错误'),'error');
+    });
+  }
+
+  // 搜题 OCR 文本 → 笔记（匹配度低 / 未入库时也可先记下来）
+  function saveOcrToNote(){
+    if(!lastOcrResult||!currentQueryId){$toast('先完成一次搜题识别','error');return}
+    var ocr=String(lastOcrResult.ocr_text||'').trim();
+    if(!ocr){$toast('这次没有识别到文字，无法存笔记','error');return}
+    var title='搜题手记 · '+ocr.replace(/\s+/g,' ').slice(0,24);
+    var parts=['（来源：拍照搜题，query_id='+currentQueryId+'）','## 识别文本\n'+ocr];
+    if(lastOcrResult.tags&&lastOcrResult.tags.length)parts.push('识别标签：'+lastOcrResult.tags.join('、'));
+    window.$API.post('/api/notes',{
+      title:title.slice(0,60), content:parts.join('\n\n'),
+      subject:lastOcrResult.subject||'', grade:lastOcrResult.grade||'',
+      knowledge_tags:lastOcrResult.tags||[], question_ids:[]
+    }).then(function(r){
+      $toast('已存入笔记','ok');
+      var id=(r&&r.id)||'';
+      if(id&&typeof $confirm==='function'){
+        $confirm('已创建笔记，去笔记页打开吗？',{title:'存入成功',okText:'去笔记页'}).then(function(go){
+          if(go)window.location.href='/notes?note='+encodeURIComponent(id);
+        });
+      }
+    }).catch(function(e){$toast('存笔记失败：'+(e&&e.message||e),'error')});
+  }
+
+  window.saveOcrToNote = saveOcrToNote;
 
   function showCorrectionModal(r){
     var score = (r.score || 0), max = (r.max_score || 0);

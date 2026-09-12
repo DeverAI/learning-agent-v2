@@ -276,7 +276,8 @@ h2,h3{{page-break-after:avoid}}
         return ""
 
     async def _glm_review_image(self, img_base64: str) -> str:
-        result = await ai_service.zhipuai_vision(img_base64, LAYOUT_REVIEW_PROMPT, parse_json=False)
+        # 视觉审核走 MiMo-first 统一助手（Fact.md 模型分工定规，2026-09-09）
+        result = await ai_service.vision_mimo_first(img_base64, LAYOUT_REVIEW_PROMPT, parse_json=False)
         review = result if isinstance(result, str) else str(result)
         if not review.strip():
             raise RuntimeError("视觉模型返回空审核结果")

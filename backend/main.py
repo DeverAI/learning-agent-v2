@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, Response, FileResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from models.database import init_db
-from routers import ocr, questions, papers, prompts, settings, profile, knowledge_base, diagnose, sessions, banks
+from routers import ocr, questions, papers, prompts, settings, profile, knowledge_base, diagnose, sessions, banks, feed
 from routers.notes import router as notes_router
 from routers.gallery import router as gallery_router
 from routers.configs import router as configs_router
@@ -20,6 +20,7 @@ from logger import get_logger, log_error
 from services.diagram_service import _is_valid_question_id as _is_valid_diagram_qid
 import os
 import re
+from datetime import datetime
 
 logger = get_logger()
 _lifespan_tasks = set()
@@ -187,6 +188,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log_error("lifespan", f"Failed to resume pending tasks: {e}")
         logger.warning("Failed to resume pending tasks, continuing...", exc_info=True)
+    # 后台 Agent 任务对账：服务重启后跑任务的协程已随进程消失，
+    # 但库里还留着 running 的行 -> 不对账的话前端永远显示"进行中"，
+    # 用户会一直等一个永远不会结束的任务。
+    try:
+        from services import background_agent as _ba
+        _n = await _ba.reconcile_on_startup()
+        if _n:
+            logger.warning("Reconciled %d interrupted agent tasks", _n)
+    except Exception as e:
+        log_error("lifespan", f"Failed to reconcile agent tasks: {e}")
     # 日签可能触发外部 AI，不能阻塞服务启动。
     try:
         from services.audit_service import _generate_daily_quote
@@ -294,9 +305,13 @@ async def password_guard(request: Request, call_next):
     elif query_pass:
         provided = query_pass.strip()
     expected = _get_auth_password()
-    # 使用恒定时间比较防止时序攻击
+    # 未配置密码（环境变量与 settings.json 均为空）= 鉴权未启用，直接放行。
+    # 既有契约（2026-09-10 修复 45 个测试 401）：中间件改为逐请求读取后，
+    # 测试模块把 SETTINGS_FILE 重定向到空临时目录时 expected 变空串，
+    # 与测试 token 恒不等导致整批 401；且未配置时本就拦截不住空 header，
+    # 此分支不构成安全弱化。配置了密码（生产服务器）仍强制恒定时间比较。
     import hmac as _hmac
-    if not _hmac.compare_digest(provided, expected):
+    if expected and not _hmac.compare_digest(provided, expected):
         from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=401,
@@ -396,12 +411,21 @@ from routers.knowledge_graph import router as kg_router
 app.include_router(kg_router)
 from routers.lecture import router as lecture_router
 app.include_router(lecture_router)
+# 后台任务与课稿（P3/P7：双端推理 + 备课）
+from routers.agent_tasks import router as agent_tasks_router
+app.include_router(agent_tasks_router)
+from routers.lessons import router as lessons_router
+app.include_router(lessons_router)
+from routers.smart_upload import router as smart_upload_router
+app.include_router(smart_upload_router)
 if ENABLE_FOCUS_MODE:
     from routers.focus import router as focus_router
     app.include_router(focus_router)
 if ENABLE_XIAOMI_TTS:
     from routers.audio import router as audio_router
     app.include_router(audio_router)
+from models import feed_models  # noqa: F401  # 自招素材每日一条 — 注册到 Base.metadata 触发建表
+app.include_router(feed.router)
 
 
 
@@ -510,6 +534,71 @@ async def page_notes(request: Request):
 @app.get("/lecture", response_class=HTMLResponse)
 async def page_lecture(request: Request):
     return render_template("lecture.html", page="lecture")
+
+
+@app.get("/lessons", response_class=HTMLResponse)
+async def page_lessons(request: Request):
+    """课稿独立页：提前备课产物的列表 / 阅读 / 编辑 / 离线缓存入口。
+
+    此前课稿只能经 Agent 对话工具读写 + HTTP API，**没有页面** ——
+    学生备完课想自己看一遍，只能让 Agent 念，或手打 API。
+    """
+    return render_template("lessons.html", page="lessons")
+
+
+def _apk_version_from_gradle() -> str:
+    """从 android/app/build.gradle.kts 解析 APK 版本，返回 "v1.5（versionCode 6）" 或空串。
+
+    为什么读构建脚本而不是读 APK 本身：纯 Python 解析二进制 AndroidManifest 需要额外依赖
+    （项目轻量化优先），而构建脚本是**版本号的唯一源头** —— 出包时做的就是它。
+    读不到就返回空串，模板侧会省略版本句，不显示过期数字（宁可不说，也不说错）。
+    """
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, "android", "app", "build.gradle.kts")
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        name_m = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+        code_m = re.search(r"versionCode\s*=\s*(\d+)", text)
+        if name_m and code_m:
+            return f"v{name_m.group(1)}（versionCode {code_m.group(1)}）"
+    except Exception as exc:
+        logger.warning("读取 APK 版本失败: %s", exc)
+    return ""
+
+
+@app.get("/download", response_class=HTMLResponse)
+async def page_download(request: Request):
+    """下载页。
+
+    文件体积、打包日期**从磁盘真实读取**，版本号**从 android/app/build.gradle.kts 读取**，
+    三样都不再手写。
+    起因：2026-09-11 发现下载页写着 "APK v1.3（versionCode 4）"、
+    "桌面端 打包日期 2026-09-10"，而磁盘上的 APK 其实是 09-05 的旧包 ——
+    手写的数字必然会漂移，而漂移的后果是用户下载了旧包却以为拿到了新版。
+    R24 补充：当时只改了体积/日期，**版本号仍是手写**（果然又漂移成
+    "v1.4（versionCode 5）"而实际已是 1.5/6）。现在改为解析构建脚本，
+    版本号只可能来自"下一次真的要出包的地方"。
+    """
+    downloads_dir = os.path.join(STATIC_DIR, "downloads")
+    out = {}
+    apk_version = _apk_version_from_gradle()
+    for key, fname in (("apk", "学习搭子-Android.apk"),
+                       ("desktop", "学习搭子-桌面端-20260912.zip")):
+        path = os.path.join(downloads_dir, fname)
+        info = {"exists": os.path.exists(path), "filename": fname,
+                "size_text": "", "date_text": "", "version_text": ""}
+        if key == "apk":
+            info["version_text"] = apk_version
+        if info["exists"]:
+            st = os.stat(path)
+            mb = st.st_size / 1024 / 1024
+            # 小于 1MB 用 KB 显示，否则 MB；保留一位小数
+            info["size_text"] = (f"{st.st_size / 1024:.0f} KB" if mb < 1
+                                 else f"{mb:.1f} MB")
+            info["date_text"] = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d")
+        out[key] = info
+    return render_template("download.html", page="download", dl=out)
 
 
 @app.get("/batch-upload", response_class=HTMLResponse)

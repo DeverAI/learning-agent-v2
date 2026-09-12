@@ -13,6 +13,7 @@ logger = get_logger()
 # 首页 widget 注册表
 HOME_WIDGET_REGISTRY = {
     "upload_question": {"title": "上传题目", "url": "/batch-upload", "default_enabled": True, "requires": []},
+    "smart_upload": {"title": "智能上传", "url": "/batch-upload#smart", "default_enabled": True, "requires": []},
     "search": {"title": "拍照搜题", "url": "/search", "default_enabled": False, "requires": ["ENABLE_SEARCH"]},
     "correct_single": {"title": "单题批改", "url": "/correct", "default_enabled": False, "requires": ["ENABLE_CORRECT"]},
     "correct_paper": {"title": "试卷批改", "url": "/papers", "default_enabled": False, "requires": ["ENABLE_CORRECT"]},
@@ -22,6 +23,7 @@ HOME_WIDGET_REGISTRY = {
     "knowledge": {"title": "题库管理", "url": "/questions", "default_enabled": True, "requires": []},
     "papers": {"title": "试卷列表", "url": "/papers", "default_enabled": True, "requires": []},
     "paper_generate": {"title": "组卷中心", "url": "/papers/generate", "default_enabled": True, "requires": []},
+    "lessons": {"title": "课稿备课", "url": "/lessons", "default_enabled": True, "requires": []},
     "focus_mode": {"title": "专注模式", "url": "/focus", "default_enabled": True, "requires": ["ENABLE_FOCUS_MODE"]},
     "dashboard": {"title": "首页", "url": "/", "default_enabled": False, "requires": []},
 }

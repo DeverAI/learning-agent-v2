@@ -11,6 +11,11 @@ logger = get_logger()
 
 MAX_RETRIES = 2
 RETRY_DELAY = 3.0
+# 推理模型（本项目主力 deepseek-v4-pro）会把输出预算先花在 `reasoning_content` 上，
+# 正文可能在预算耗尽时一个 token 都没轮到（`finish_reason=length` + `content` 为空）。
+# 实测同一个备课 prompt：2048 -> 正文 0 字；4096 仍为 0；8192 才拿到 1404 字。
+# 因此"空正文 + 撞上限"的重试**至少**要跳到这个值，只做 ×2 等于白烧一次调用。
+REASONING_SAFE_MIN = 8192
 
 # Agent 步骤可视化：按 session_id 存储最近步骤（内存级，重启清空）
 _agent_step_stores: dict[str, list[dict]] = {}
@@ -385,11 +390,25 @@ class AIService:
                         finish_reason = choice.get("finish_reason", "")
                         if finish_reason == "length" and attempt < MAX_RETRIES:
                             current_tokens = _safe_int(payload.get("max_tokens", 0), 0)
+                            # 至少跳到 REASONING_SAFE_MIN，不能只 ×2。
+                            #
+                            # 本项目主力模型是**推理模型**：预算会先被 `reasoning_content`
+                            # 吃掉。实测同一个备课 prompt：2048 -> 正文长度 0；
+                            # 只翻倍到 4096 仍然为 0；8192 才拿到 1404 字正文。
+                            # 所以"×2"在这种模型上等于多浪费一次调用。
+                            new_tokens = max(REASONING_SAFE_MIN,
+                                             min(max(current_tokens * 2, 1024), 131072))
                             payload = dict(payload)
-                            payload["max_tokens"] = max(512, min(max(current_tokens * 2, 512), 131072))
+                            payload["max_tokens"] = new_tokens
+                            _usage = data.get("usage") or {}
+                            _details = _usage.get("completion_tokens_details") or {}
                             logger.warning(
-                                "AI returned empty content after token limit; retrying with max_tokens=%d",
-                                payload["max_tokens"],
+                                "AI returned empty content after token limit; "
+                                "retrying with max_tokens=%d (prev=%d, completion=%s, "
+                                "reasoning=%s) —— 推理模型把预算烧在 reasoning 上了",
+                                new_tokens, current_tokens,
+                                _usage.get("completion_tokens"),
+                                _details.get("reasoning_tokens"),
                             )
                             continue
                         raise AIEmptyResponseError("AI returned empty assistant content")
@@ -848,6 +867,10 @@ class AIService:
                 "【计算器工具 - 按需使用】\n"
                 "你可以调用 calculator 工具完成精确计算。调用后工具会返回结果，你再继续推理。\n"
                 "支持的运算: + - * / // % **、sqrt、sin/cos/tan/asin/acos/atan、log/ln、abs、factorial、gcd/lcm。\n"
+                # 单位与底数必须写进提示词，否则模型按角度制写 sin(30) 会拿到弧度制的 -0.988，
+                # 而这个错值会一路进到给学生的解题步骤里。
+                "【注意】sin/cos/tan 用**弧度**：角度请写 sin(pi/6) 或 sin(radians(30))；反三角返回的也是弧度。\n"
+                "【注意】log 与 ln 都是**自然对数**，常用对数请用 log10(x) 或 lg(x)。\n"
                 "用 pi 表示 π，e 表示自然常数。结果会保留符号（如 sqrt(2)、pi）和最简分数。\n"
                 "如果后一步需要引用上一步结果，在表达式中写 prev_result。\n"
                 "提醒：如果一道题需要大量复杂计算且题目未明确允许，请反思是否方法选择不当；但使用内置计算器本身是允许且推荐的。\n\n"
@@ -1411,6 +1434,84 @@ class AIService:
             logger.warning("zhipuai_search failed: %s, falling back to Kimi", str(e)[:200])
             return await self.kimi_search(query)
 
+    async def glm_web_search(self, prompt: str, *, temperature: float = 0.6,
+                             max_tokens: int = 2048, timeout: int = 90) -> dict:
+        """调用 GLM 的**内置 web_search 工具**做联网检索。
+
+        返回 `{"text": 模型正文, "results": [检索到的原文片段, ...]}`。
+
+        ## 两条实测结论（2026-09-11 实测，不是推测）
+
+        1. `web_search.enable=True` **确实会联网**。证据：同一个问题，
+           不带 tools 时 `prompt_tokens=22`，带上 tools 时 `prompt_tokens=2249`
+           —— 是 Zhipu 把检索到的网页正文注入了 prompt。所以
+           "这接口是假的、模型只是凭记忆编" 这个怀疑**不成立**。
+        2. 但**只有**再加 `search_result=True`，响应顶层才会出现 `web_search`
+           字段，里面是检索到的原文片段。**没有它，调用方无法自证检索发生过**，
+           而模型的措辞还会骗人 —— 实测有一次它一边说「我无法直接联网搜索信息」，
+           一边在用注入的参考资料作答。只看正文根本分不出来。
+
+        ## 因此本方法的行为约定
+
+        - **必须**带 `search_result=True`；
+        - 拿不到 `web_search` 结果就**抛异常**，而不是返回正文 ——
+          宁可报"没搜成"，也不能把来源无法证明的内容当成网上查到的交给用户
+          （项目「容量诚实」原则）。
+        - 失败一律抛异常，不返回空串：空串会让"没搜到"与"没搜成"变成一个样子。
+        """
+        if not self.zp_key:
+            raise RuntimeError("未配置 zhipuai_api_key，无法联网检索")
+        payload = {
+            "model": "glm-4-flash",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": [{"type": "web_search",
+                       "web_search": {"enable": True, "search_result": True}}],
+        }
+        import httpx as _h
+        async with _h.AsyncClient(timeout=_h.Timeout(timeout)) as c:
+            resp = await c.post(
+                self.zp_url,
+                json=payload,
+                headers={"Authorization": f"Bearer {self.zp_key}",
+                         "Content-Type": "application/json"},
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"联网检索失败 HTTP {resp.status_code}: {resp.text[:200]}")
+            body = resp.json()
+
+        raw_results = body.get("web_search")
+        if not isinstance(raw_results, list) or not raw_results:
+            # 没有检索结果字段 = 无法证明检索发生过。此处**不返回正文**。
+            raise RuntimeError(
+                "联网检索未返回结果（响应缺少 web_search 字段），"
+                "无法确认检索是否真的执行，因此不采用本次正文"
+            )
+        results = []
+        for item in raw_results:
+            if isinstance(item, dict):
+                text = str(item.get("content") or item.get("text") or "").strip()
+                if text:
+                    entry = {"content": text}
+                    if item.get("link"):
+                        entry["link"] = str(item["link"])
+                    if item.get("title"):
+                        entry["title"] = str(item["title"])
+                    results.append(entry)
+            elif isinstance(item, str) and item.strip():
+                results.append({"content": item.strip()})
+        if not results:
+            raise RuntimeError("联网检索返回的 web_search 字段里没有可用内容")
+
+        choices = body.get("choices") or []
+        if not choices:
+            raise RuntimeError("联网检索返回空 choices")
+        text = ((choices[0].get("message") or {}).get("content") or "").strip()
+        if not text:
+            raise RuntimeError("联网检索返回空正文")
+        return {"text": text, "results": results}
+
     # ===================== 小米 MiMo：视觉备用 + TTS 配音 =====================
 
     async def xiaomi_chat(self, messages: list, temperature: float = 0.3,
@@ -1464,6 +1565,33 @@ class AIService:
         if not parse_json:
             return content
         return self._extract_json(content)
+
+    async def vision_mimo_first(self, image_base64: str, prompt: str,
+                                mime_type: str = "image/jpeg",
+                                parse_json: bool = True) -> "dict | str | None":
+        """MiMo-first 视觉调用（Fact.md 2026-09-06 模型分工定规）。
+
+        小米 MiMo 全模态优先（xm_key 已配置时），ZhipuAI 视觉回退；
+        两者都失败返回 None，由调用方按既有降级路径处理。
+        返回形状与 xiaomi_vision/zhipuai_vision 一致：
+        parse_json=True 时尽量返回 dict，否则返回原始文本。
+        Kimi 无视觉输入能力，不进视觉链（FreqErr 教训）。
+        """
+        if self.xm_key:
+            try:
+                result = await self.xiaomi_vision(image_base64, prompt, mime_type,
+                                                  parse_json=parse_json)
+                if isinstance(result, dict) or (isinstance(result, str) and result.strip()):
+                    return result
+                logger.warning("vision_mimo_first: xiaomi_vision returned empty result")
+            except Exception as e:
+                logger.warning("vision_mimo_first: xiaomi_vision failed: %s", str(e)[:200])
+        try:
+            return await self.zhipuai_vision(image_base64, prompt, mime_type,
+                                             parse_json=parse_json)
+        except Exception as e:
+            logger.warning("vision_mimo_first: zhipuai_vision failed: %s", str(e)[:200])
+        return None
 
     async def xiaomi_tts(self, text: str, voice: str = "",
                          audio_format: str = "mp3") -> tuple[bytes, str]:
@@ -1994,8 +2122,8 @@ async def _call_vision_model_async(prompt: str, image_base64: str, max_tokens: i
     """异步调用视觉模型。
 
     模型分工（Fact.md 2026-09-06 用户定规）：图像识别一律优先小米 MiMo V2.5
-    全模态（token plan 免费）；ZhipuAI 视觉为第一回退；Kimi 无视觉输入能力
-    仅作最后文本兜底。"""
+    全模态（token plan 免费）；ZhipuAI 视觉为回退。Kimi 无视觉输入能力，
+    不进视觉链（FreqErr：全挂时白烧 400 调用，2026-09-09 移除）。"""
     try:
         if ai_service.xm_key:
             try:
@@ -2012,13 +2140,5 @@ async def _call_vision_model_async(prompt: str, image_base64: str, max_tokens: i
             return result
     except Exception as e:
         logger.warning("zhipuai_vision failed: %s", str(e)[:200])
-
-    # 回退 Kimi
-    try:
-        result = await ai_service.kimi_vision(image_base64, prompt, parse_json=False)
-        if isinstance(result, str) and result.strip():
-            return result
-    except Exception as e:
-        logger.warning("kimi_vision fallback failed: %s", str(e)[:200])
 
     return None

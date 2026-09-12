@@ -28,11 +28,18 @@
 })();
 </script>
 {% if enable_offline %}<script defer src="/static/js/offline.js?v=1"></script>{% endif %}
+<!-- R24：安卓壳的原生语音识别适配层（普通浏览器里它自己什么都不做） -->
+<script defer src="/static/js/android_sr.js?v=1"></script>
 <script defer src="/static/js/motion.js"></script>
 <script defer src="/static/js/app.js"></script>
 <script src="/storage/vendor/marked.min.js?v=1"></script>
 <script defer src="/storage/vendor/katex/katex.min.js?v=1"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<!-- mermaid 是本项目**唯一**的 CDN 依赖（marked / katex 都已 vendor 到 /storage/vendor/，
+     建议后续一并本地化，彻底去掉外网依赖）。这里用 async 而非 defer：defer 脚本必须全部
+     执行完才会触发 DOMContentLoaded，CDN 被墙或悬挂时会把整页交互一起拖住（校园网下
+     jsdelivr 不可达是常见情况）。app.js 侧已改为重试渲染，晚到也能补上。 -->
+<script async src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+        onerror="console.warn('mermaid CDN 加载失败，图表将不渲染（建议本地 vendor）')"></script>
 <script>(function(){var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')})()</script>
 <script>
 // 主题色动态注入（仅全局变量 — 初始化在 $API 之后）
@@ -135,6 +142,9 @@ window.addEventListener('themeChanged',function(){var n=localStorage.getItem('ac
         <a href="/diagnose" class="{{ 'active' if page == 'diagnose' else '' }}">诊断</a>
         <a href="/prompts" class="{{ 'active' if page == 'prompts' else '' }}">Prompt</a>
         <a href="/qa" class="{{ 'active' if page == 'qa' else '' }}">Q&A</a>
+        <a href="/lecture" class="{{ 'active' if page == 'lecture' else '' }}">讲课</a>
+        <a href="/lessons" class="{{ 'active' if page == 'lessons' else '' }}">课稿</a>
+      <a href="/download" class="{{ 'active' if page == 'download' else '' }}">下载</a>
       </div>
     </nav>
     <div style="padding:8px;border-top:1px solid var(--border)">

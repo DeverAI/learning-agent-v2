@@ -59,7 +59,13 @@ _RELATION_TYPES = {
     "influenced": "影响",
     "belongs_to": "归属于",
     "compared_with": "对比",
+    # 时序关系（2026-09-12 新增）。在此之前的 8 种关系全是**非时序**的，
+    # 所以"学 X 之前要先会什么"在图里无法表达 —— 知识补漏就缺了排序依据。
+    "prerequisite": "前置",
+    "successor": "后继",
 }
+# 时序关系集合：做"先补什么"的拓扑排序时只认这些边。
+TEMPORAL_RELATIONS = {"prerequisite", "successor"}
 
 
 def _load_graph() -> dict:
@@ -347,9 +353,13 @@ def add_note_to_graph(note_id: str, title: str, content: str,
             continue
 
         # 检查是否已存在相同关系
+        # 去重键必须**带上 relation**。原先只比 (from,to)，于是同一对节点之间的
+        # 第二种关系会被静默丢掉（体重 +1 了，关系却没增加）——
+        # 例如先写入「A 包含 B」，再写「A 与 B 相关」，后者直接消失。
         exists = False
         for edge in edges:
-            if edge.get("from") == from_id and edge.get("to") == to_id:
+            if (edge.get("from") == from_id and edge.get("to") == to_id
+                    and edge.get("relation", "related") == relation_type):
                 edge["weight"] = edge.get("weight", 1) + 1
                 exists = True
                 break
@@ -487,6 +497,182 @@ def _rebuild_clusters(graph: dict):
 
 
 # ── 查询 ──
+
+def merge_curriculum(nodes: list, edges: list, *, tag: str = "curriculum") -> dict:
+    """把一份**课程体系**（知识点 + 前置边）合并进知识图谱。
+
+    与 `add_note_to_graph` 的区别（都是有意为之，不是重复实现）：
+    - 节点带 `subject/grade/module/band` 等体系元数据，便于按学科/年级/难度筛；
+    - 边**按 (from,to,relation) 去重**，不会把两条不同关系合成一条；
+    - **不跑** `_infer_indirect_relations`：体系边是精确的教学依赖，不是"同簇推断"，
+      混进推断关系会把"先补什么"的顺序搞脏；
+    - `source_notes` 里记 `tag`，方便日后整体撤回（`remove_curriculum(tag)`）。
+
+    幂等：重复调用只会更新节点属性、不会重复加边。
+    返回 {"nodes_added","nodes_updated","edges_added","edges_skipped"}。
+    """
+    graph = _load_graph()
+    g_nodes = graph["nodes"]
+    g_edges = graph["edges"]
+    kw_index = graph["keyword_index"]
+
+    stats = {"nodes_added": 0, "nodes_updated": 0, "edges_added": 0, "edges_skipped": 0}
+    label_to_id: dict = {}
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # ---- 1) 节点 ----
+    for item in nodes:
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        nid = _make_node_id(label)
+        label_to_id[label] = nid
+        if nid in g_nodes:
+            node = g_nodes[nid]
+            stats["nodes_updated"] += 1
+        else:
+            node = {
+                "id": nid, "label": label, "type": "concept",
+                "description": str(item.get("description") or "")[:200],
+                "detail": "", "aliases": [], "weight": 1,
+                "source_notes": [tag] if tag else [],
+                "created_at": now, "updated_at": now,
+            }
+            g_nodes[nid] = node
+            stats["nodes_added"] += 1
+        # 体系元数据总是覆盖为最新（便于改版后重灌）
+        for key in ("subject", "grade", "module", "band"):
+            if item.get(key):
+                node[key] = item[key]
+        node["is_curriculum"] = True
+        node["updated_at"] = now
+        if tag and tag not in (node.get("source_notes") or []):
+            node.setdefault("source_notes", []).append(tag)
+        for name in [label] + list(item.get("aliases") or []):
+            kw = _normalize_keyword(name)
+            kw_index.setdefault(kw, [])
+            if nid not in kw_index[kw]:
+                kw_index[kw].append(nid)
+
+    # ---- 2) 边 ----
+    # 先把所有节点登记完再连边，避免"先出现的边指向后出现的节点"这种顺序依赖
+    for rel in edges:
+        from_id = label_to_id.get(str(rel.get("from") or "").strip())
+        to_id = label_to_id.get(str(rel.get("to") or "").strip())
+        if not from_id or not to_id:
+            # 端点不在本次体系里：跳过并计数，由调用方决定是否当成错误
+            stats["edges_skipped"] += 1
+            continue
+        relation = str(rel.get("relation") or "related")
+        if relation not in _RELATION_TYPES:
+            stats["edges_skipped"] += 1
+            continue
+        dup = False
+        for edge in g_edges:
+            if (edge.get("from") == from_id and edge.get("to") == to_id
+                    and edge.get("relation", "related") == relation):
+                dup = True
+                break
+        if dup:
+            stats["edges_skipped"] += 1
+            continue
+        g_edges.append({"from": from_id, "to": to_id, "relation": relation,
+                        "weight": 1, "source": tag, "created_at": now})
+        stats["edges_added"] += 1
+
+    _rebuild_clusters(graph)
+    _save_graph(graph)
+    return stats
+
+
+def remove_curriculum(tag: str = "curriculum") -> dict:
+    """撤回某次体系灌入：删掉带该 tag 的边，以及只属于该 tag 的节点。"""
+    graph = _load_graph()
+    before_nodes = len(graph["nodes"])
+    before_edges = len(graph["edges"])
+    graph["edges"] = [e for e in graph["edges"] if e.get("source") != tag]
+    keep = {}
+    for nid, node in graph["nodes"].items():
+        srcs = [s for s in (node.get("source_notes") or []) if s != tag]
+        if node.get("is_curriculum") and not srcs:
+            continue          # 只挂在这个 tag 上的体系节点，一并删掉
+        node["source_notes"] = srcs
+        keep[nid] = node
+    graph["nodes"] = keep
+    # 关键词索引里同步剔除已删节点
+    for kw, ids in list(graph["keyword_index"].items()):
+        alive = [i for i in ids if i in keep]
+        if alive:
+            graph["keyword_index"][kw] = alive
+        else:
+            graph["keyword_index"].pop(kw, None)
+    _rebuild_clusters(graph)
+    _save_graph(graph)
+    return {"nodes_removed": before_nodes - len(graph["nodes"]),
+            "edges_removed": before_edges - len(graph["edges"])}
+
+
+def find_node_by_label(label: str) -> dict:
+    """按 label / 别名找节点。找不到返回 {}（调用方据此给"没有"而不是编一个）。"""
+    graph = _load_graph()
+    key = _normalize_keyword(label)
+    for nid in graph["keyword_index"].get(key, []):
+        node = graph["nodes"].get(nid)
+        if node:
+            return {**node, "id": nid}
+    return {}
+
+
+def get_prerequisites(node_id: str, depth: int = 5) -> dict:
+    """顺着 `prerequisite` 边回溯，给出"要掌握 X 之前应先掌握什么"。
+
+    返回 `{"target":..., "levels":[[...], [...], ...], "unresolved":[...]}`：
+    - `levels[0]` 是直接前置，`levels[1]` 是前置的前置，以此类推；
+    - 去重后同一节点只出现在**最早**的那一层（最短距离），避免同一知识点重复出现在多层；
+    - 环会在去重中被自然截断（已访问过的不再展开）。
+
+    **诚实性要求**：图里没有前置边的节点，返回的 `levels` 就是空的 ——
+    调用方必须如实说"没有记录前置关系"，不能自己编一个学习顺序出来。
+    """
+    graph = _load_graph()
+    nodes = graph["nodes"]
+    if node_id not in nodes:
+        return {"target": node_id, "found": False, "levels": [], "unresolved": [],
+                "note": "节点不在图谱中"}
+
+    # 反向索引：to -> [from...]（只认 prerequisite 方向）
+    incoming: dict = {}
+    for e in graph["edges"]:
+        if e.get("relation") != "prerequisite":
+            continue
+        incoming.setdefault(e.get("to"), []).append(e.get("from"))
+
+    seen = {node_id}
+    levels = []
+    frontier = [node_id]
+    for _ in range(max(1, int(depth or 1))):
+        nxt = []
+        for cur in frontier:
+            for pre in incoming.get(cur, []):
+                if pre in seen or pre not in nodes:
+                    continue
+                seen.add(pre)
+                nxt.append(pre)
+        if not nxt:
+            break
+        levels.append([{"id": n, "label": nodes[n].get("label", ""),
+                        "subject": nodes[n].get("subject", ""),
+                        "grade": nodes[n].get("grade", "")} for n in nxt])
+        frontier = nxt
+
+    return {
+        "target": {"id": node_id, "label": nodes[node_id].get("label", "")},
+        "found": True,
+        "levels": levels,
+        "total_prerequisites": sum(len(l) for l in levels),
+        "has_prerequisite_edges": bool(incoming.get(node_id)),
+    }
+
 
 def search_graph(query: str, limit: int = 10) -> list:
     """搜索知识图谱中的节点，返回匹配的节点列表。"""

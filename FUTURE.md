@@ -5,15 +5,17 @@
 - 单题批改：已实现基于搜题匹配、得分点批分和新颖正确做法评分；单页与整卷模式的扩展边界见 `Design.md`。
 - **专注模式与语音讲解（2026-08-18 启动，2026-08-25 完成验收）**：AI 分段教学 +「对吧」检查点 + 语音交互 + 表情分析 + 虚拟海马体记忆系统。独立 `/focus` 页面，扩展 user_profile 实现海马体。
 - **AI 配音（2026-08-25）**：专注模式讲解语音从小米 MiMo TTS 合成（`mimo-v2.5-tts`），后端 `/api/tts` 代理，失败自动回退浏览器 SpeechSynthesis。
+- **文字版试卷 PDF 导入（2026-09-12 R27）**：`POST /api/ocr/session/import-pdf`；pypdf 按页抽文字 → 每页 staged 题；扫描版明确失败并指引拍照。整卷上传页 UI。
 
 ## 已提出但未实现的需求
-0. **小米 MiMo 音频输入理解（2026-08-25 记录）**：当前语音识别仍走浏览器 Web Speech API；若需脱离浏览器实现 ASR，可接入 MiMo 全模态音频输入（token plan 网关），需先验证网关对 audio input 的支持。
+0. **小米 MiMo 音频输入理解（2026-08-25 记录）**：当前语音识别仍走浏览器 Web Speech API；若需脱离浏览器实现 ASR，可接入 MiMo 全模态音频输入（token plan 网关），需先验证网关对 audio input 的支持。**安卓端已用原生 SpeechRecognizer 桥（R24）**。
+0b. **扫描版试卷 PDF 走「抽图 → OCR」**（2026-09-12 记录）：文字版 PDF 已导入；扫描版 pypdf 无字，需提取内嵌/渲染页图再走既有 OCR。
 1. **schemdraw 集成**：电路图绘制（用户确认"电路先预设这个"）
 2. **前端拖拽实时端口对齐**：当前画布显示端口绿点但无拖拽吸附
 3. **双向接口映射优化**：玻璃棒和烧杯悬空接口 vs 烧杯和铁架台底部接口的逻辑差异化
 4. **元件真实SVG渲染的缩放对齐**：ports 位置在真实 SVG 中可能偏移
 6. **批量选择后批量属性编辑**：当前只显示选中的第一个的属性
-7. **单题批改**：基于搜题结果（hybrid 策略匹配到完全相似题），按得分点批分；允许 AI 对新颖正确做法自主打分。依赖"拍照搜题"功能完成。
+7. ~~**单题批改**~~ —— **陈旧条目，2026-09-11 删除**。与本文首节「已完成但曾记录为未来需求」的第 1 条**自相矛盾**（那里写"单题批改：已实现基于搜题匹配、得分点批分和新颖正确做法评分"）。按首节为准，此项已落地，不再列为未实现。
 8. **尺规作图与方格题绘图（2026-07-31 记录）**：让 AI 学会画尺规作图（圆规、直尺作图步骤图）和方格题（仅直尺作图题）的图。
    - 当前状态：方案 B 基础组件已实现（compass_arc/ruler_line/equal_length_mark/perpendicular_mark/grid_paper 5 个 math 组件注册并在调色板显示）；AI 步骤 JSON 驱动与状态机仍未实现，待后续需求明确后启动。
    - 技术方案探讨：
@@ -39,12 +41,12 @@
 - 自动 viewBox 对连接线和刻度溢出的覆盖
 - 自动分题增加题目区域坐标裁剪，减少整页其他题图对参考 SVG 的干扰
 - 在真实触屏设备持续回归相机上传、单指平移、双指缩放和安全区
-- 编辑器拖拽适配触屏（HTML5 DnD 在触屏不可用，需 pointer/touch 兜底或"点击加入"按钮）
-- 多 `window.open` 在严格浏览器策略下可能被拦截：考虑改为单次下载 .zip 或后端 tar 打包
+- 编辑器拖拽适配触屏 —— **已完成（2026-09-11）**：调色板补 click / Enter 兜底，元件落在画布中心（与 drop 路径同款偏移）。原问题「HTML5 DnD 在触屏不可用、`addComponent` 唯一调用点在 drop 里」已闭环。
+- 多 `window.open` 被拦截 —— **已完成（2026-09-11）**：新增 `GET /api/papers/{id}/download-bundle?modes=...` 返回单个 zip；前端多选时改用 `<a download>` 单次触发。原实现一次点击同步开最多 4 个窗口、浏览器只放行第一个却被提示"已分 4 个下载"，属**假成功**。
 - `--text3` 进一步测算精确对比度，必要时同步提亮 `--text2`
-- 搜题 _find_matches 全表加载 + 逐条 SequenceMatcher（O(N×800²) 同步阻塞）：题库破千后需 SQL 前置过滤（学科/年级/标签）再比对
+- 搜题 `_find_matches` 全表加载 + 逐条 SequenceMatcher —— **已完成（2026-09-11）**：题库超过 `_SIMILARITY_BANK_THRESHOLD`(1000) 时先用学科/年级做 SQL 前置过滤（过滤后为空则回退到不限科级的最近 N 条以保召回），并给候选集加 `_SIMILARITY_CANDIDATE_LIMIT`(1200) 硬上限，Python 比对次数有上界，不再随题库无界增长。
 - 组卷检索 _search_questions 已 LIMIT/COUNT 化；同类全表物化点可按同款模式继续排查
-- 上传图片"先全量 read 后验大小"改分块读累计（ocr/correction/search 三处同款），降低恶意超大上传的内存峰值
+- 上传图片全量读 —— **已完成（2026-09-11）**：抽 `backend/services/upload_guard.py` 的 `read_upload_limited()`，ocr / correction / search 三处共用「分块读 + 累计上限」，超限立即 413 中止。原实现先全量 `await file.read()` 再判大小，判定只是事后拒绝、内存峰值已经发生。
 - 服务端上 HTTPS（自签证书 + networkSecurityConfig 信任锚），替代当前"局域网明文 http + APK 保存时警示"的已知取舍
 - APK 发布链路：配置 release 签名 + minify，日常使用改装 release 包（当前仅 debug 产物，JDWP/run-as 攻击面大）
 - WebView onSaveInstanceState/restoreState 进程死亡后恢复页面状态（当前靠重载兜底）

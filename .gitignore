@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -36,4 +36,16 @@ backups/
 backend/settings.json
 android/
 dev_log/
+# runtime data (never commit)
+backend/storage/app.db
+backend/storage/app.db-shm
+backend/storage/app.db-wal
+backend/storage/
+backend/hippocampus/
+*.log
+
+# Desktop (桌面端运行时数据与密钥，永不入库)
+desktop/data/
+desktop/logs/
+desktop/config/secrets*.json
 
