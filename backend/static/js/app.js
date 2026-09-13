@@ -120,7 +120,7 @@ window.$API = {
         try{
           var d=JSON.parse(t);
           if(typeof d.detail==='string')detail=d.detail;
-          else if(d.detail&&typeof d.detail==='object')detail=d.detail.message||JSON.stringify(d.detail);
+          else if(d.detail&&typeof d.detail==='object')detail=(typeof $errText==='function')?$errText(d):JSON.stringify(d.detail);
           else detail=d.message||'';
         }catch(e){}
         // R23：401 → 打 needAuth 标记，由 _request 统一走「补密码→重试一次」
@@ -192,6 +192,28 @@ window.$API = {
   delete: function(u){return window.$API._request(u,{method:'DELETE'},'json')}
 };
 
+// ===== 统一错误文案（R35：消灭 [object Object]）=====
+// FastAPI 的 detail 可能是 string 也可能是 dict；Event/CustomEvent 没有 message。
+// 任何把 e.message / e.detail 拼进 UI 的地方都必须先过这里。
+function $errText(err, fallback){
+  fallback = fallback || '未知错误';
+  if(err==null) return fallback;
+  if(typeof err==='string') return err || fallback;
+  if(typeof err==='number'||typeof err==='boolean') return String(err);
+  var m = err.message;
+  if(typeof m==='string' && m) return m;
+  var d = err.detail;
+  if(typeof d==='string' && d) return d;
+  if(d && typeof d==='object'){
+    if(typeof d.message==='string' && d.message) return d.message;
+    if(typeof d.detail==='string' && d.detail) return d.detail;
+    try{ var j=JSON.stringify(d); if(j && j!=='{}' && j!=='null') return j.slice(0,300); }catch(e){}
+  }
+  try{ var j2=JSON.stringify(err); if(j2 && j2!=='{}' && j2!=='null' && j2.length<400) return j2; }catch(e){}
+  return fallback;
+}
+window.$errText=$errText;
+
 // ===== 格式化与标签函数 =====
 function $fmt(t){if(!t)return'-';var d=new Date(t);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 function $status(s){var m={done:'<span class="badge badge-done">OK</span>',staged:'<span class="badge badge-pending">Staged</span>',pending:'<span class="badge badge-pending">...</span>',processing:'<span class="badge badge-pending">...</span>',generating_solution:'<span class="badge badge-pending">...</span>',error:'<span class="badge badge-error">ERR</span>'};return m[s]||'<span class="badge">'+s+'</span>'}
@@ -201,6 +223,12 @@ function $type(t){var m={custom:'自定义',regular_paper:'平时卷',collection
 var _toastIcons={ok:'OK',error:'!',warn:'!',info:'i'};
 function $toast(m,t){
   t=(t==='error'||t==='ok'||t==='warn')?t:'info';
+  // R35：m 可能是 Error/对象，先归一，避免 [object Object]
+  if(m && typeof m!=='string'){
+    if(typeof $errText==='function') m=$errText(m);
+    else m=String(m);
+  }
+  m=String(m==null?'':m);
   var c=document.getElementById('toastContainer');
   if(!c){c=document.createElement('div');c.id='toastContainer';document.body.appendChild(c)}
   while(c.children.length>=4)c.firstChild.remove();

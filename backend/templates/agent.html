@@ -43,10 +43,13 @@
       <div style="font-size:12px;line-height:1.6">支持多轮对话、意图识别、工具路由与上下文记忆</div>
     </div>
   </div>
-  <div style="display:flex;gap:6px;margin-top:10px">
-    <input type="text" id="agentInput" placeholder="输入消息...（支持多轮对话，有上下文记忆）" style="flex:1;padding:10px;font-size:14px" onkeydown="if(event.key==='Enter')sendAgent(document.getElementById('agentSend'))">
+  <div style="display:flex;gap:6px;margin-top:10px;align-items:flex-end">
+    <input type="file" id="agentFile" accept="image/*,.pdf,.docx,.txt,.md" multiple style="display:none">
+    <button class="btn" id="agentAttachBtn" type="button" title="上传图片/PDF/Word/文本" style="padding:10px 12px;min-height:44px">附件</button>
+    <input type="text" id="agentInput" placeholder="输入消息...（可先点附件上传再发送）" style="flex:1;padding:10px;font-size:14px" onkeydown="if(event.key==='Enter')sendAgent(document.getElementById('agentSend'))">
     <button class="btn btn-primary" id="agentSend" onclick="sendAgent(this)" style="padding:10px 20px">发送</button>
   </div>
+  <div id="agentAttachStatus" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
 </div>
 
 <style>
@@ -140,6 +143,12 @@ function openSession(sid){
 
 function sendAgent(btn){
   var i=document.getElementById('agentInput'),m=i.value.trim();
+  // R35：附件已上传时，自动把分流结果写进消息，让 Agent 接得上
+  if(window._agentAttachSummary){
+    m=(m?m+'\n\n':'')+'我刚上传了附件：\n'+window._agentAttachSummary;
+    window._agentAttachSummary='';
+    var st=document.getElementById('agentAttachStatus');if(st)st.textContent='';
+  }
   if(!m)return;
   if(!_currentId){
     window.$API.post('/api/sessions',{title:'新对话'}).then(function(s){
@@ -150,6 +159,36 @@ function sendAgent(btn){
   }
   sendAgentText(m,btn);
 }
+// R35：Agent 附件 —— 走智能上传，把结果摘要交给 Agent
+(function(){
+  var input=document.getElementById('agentFile');
+  var btn=document.getElementById('agentAttachBtn');
+  if(!input||!btn)return;
+  btn.addEventListener('click',function(){input.click()});
+  input.addEventListener('change',function(){
+    var files=input.files;
+    if(!files||!files.length)return;
+    var st=document.getElementById('agentAttachStatus');
+    st.textContent='上传中…';
+    var fd=new FormData();
+    Array.prototype.forEach.call(files,function(f){fd.append('files',f)});
+    fd.append('use_ai','true');
+    window.$API.upload('/api/smart-upload',fd).then(function(r){
+      var lines=(r.results||[]).map(function(x){
+        var dest=x.dest||'?';
+        var id=x.id||'';
+        var msg=x.message||'';
+        return '- '+dest+(id?(' '+id):'')+(msg?('：'+msg):'');
+      });
+      window._agentAttachSummary=lines.join('\n')||('已上传 '+files.length+' 个文件');
+      st.textContent='已上传 '+ (r.ok||0) +' / '+(r.total||files.length)+'，可直接发送或补充说明';
+      var inp=document.getElementById('agentInput');
+      if(inp && !inp.value.trim()) inp.value='请整理刚才上传的内容并继续（可备课/出卷）';
+    }).catch(function(e){
+      st.textContent='上传失败：'+$errText(e);
+    }).finally(function(){input.value=''});
+  });
+})();
 function sendAgentText(m,btn,opts){
   var c=document.getElementById('agentMsgs');
   var inp=document.getElementById('agentInput');

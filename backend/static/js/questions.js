@@ -1181,11 +1181,24 @@
     confidenceEl.style.background=high?'var(--err-bg)':'var(--warn-bg)';
     confidenceEl.style.color=high?'var(--err)':'var(--warn)';
     var reasons=document.getElementById('challengeReasons');reasons.innerHTML='';
-    (c.reasons||['AI 检测到待核对问题']).forEach(function(reason){var div=document.createElement('div');div.textContent='• '+reason;reasons.appendChild(div)});
+    (c.reasons||['AI 检测到待核对问题']).forEach(function(reason){
+      var div=document.createElement('div');
+      // R35：质疑理由可能含公式/Markdown，必须走 $md，不能只用 textContent
+      if(typeof $md==='function'){ $md('• '+String(reason||''), div); }
+      else { div.textContent='• '+reason; }
+      reasons.appendChild(div);
+    });
     var evidence=document.getElementById('challengeEvidence');evidence.innerHTML='';
     if(c.evidence&&c.evidence.length){
-      var label=document.createElement('b');label.textContent='核对依据：';evidence.appendChild(label);
-      evidence.appendChild(document.createTextNode(c.evidence.join('；')));
+      var wrap=document.createElement('div');
+      if(typeof $md==='function'){
+        $md('**核对依据：**'+c.evidence.join('；'), wrap);
+      }else{
+        var label=document.createElement('b');label.textContent='核对依据：';
+        wrap.appendChild(label);
+        wrap.appendChild(document.createTextNode(c.evidence.join('；')));
+      }
+      evidence.appendChild(wrap);
     }
     document.getElementById('challengeAction').textContent='建议：'+(c.recommended_action||(high?'人工核对原图、题干和参考答案':'带着上述疑点检查后再使用'));
   }

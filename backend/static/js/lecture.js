@@ -128,6 +128,8 @@
   }
 
   function speakText(text) {
+    if (!text) return;
+    if (window._lecPaused) return;
     if (!$('autoSpeak').checked) return;
     // Android WebView：SpeechSynthesis 不可用，通过原生 TTS 桥朗读（round 60 A1）
     if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
@@ -231,7 +233,7 @@
     }).catch(function (e) {
       ld.remove();
       var ed = document.createElement('div'); ed.style.cssText = 'color:var(--err)';
-      ed.textContent = e.message || '提问失败';
+      ed.textContent = $errText(e, '提问失败');
       area.appendChild(ed);
     }).finally(function () { if (btn) btn.disabled = false; });
   }
@@ -256,6 +258,21 @@
     stop: function () {
       stopSpeaking();
       setStatus('已停止');
+    },
+    // R35：黑板暂停/继续 —— 停朗读，不推进步骤
+    togglePauseBoard: function () {
+      var btn = $('btnPauseBoard');
+      if (window._lecPaused) {
+        window._lecPaused = false;
+        if (btn) btn.textContent = '暂停';
+        setStatus('继续');
+        speakText((currentStep() && currentStep().step && currentStep().step.speech) || '');
+      } else {
+        window._lecPaused = true;
+        stopSpeaking();
+        if (btn) btn.textContent = '继续';
+        setStatus('已暂停朗读（步骤停在当前）');
+      }
     }
   };
 

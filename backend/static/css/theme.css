@@ -1322,6 +1322,12 @@ html.native-app table th,html.native-app table td{padding:5px 8px}
 .board-snapshot-item:hover{border-color:var(--accent)}
 /* 移动端：黑板大屏化（板书为讲题主视图） */
 @media (max-width:768px){
-  .board-surface{min-height:62vh;max-height:72vh;padding:16px}
+  .board-surface{min-height:70vh;max-height:calc(100dvh - 120px);padding:16px}
   .board-text{font-size:15px}
 }
+html.native-app .board-surface{min-height:70vh;max-height:calc(100dvh - 100px)}
+html.native-app .board-wrap{margin-bottom:8px}
+/* R35：暗色下黑板内的示意图必须可读 */
+.board-svg-card{background:#fdfdf8!important}
+[data-theme="dark"] .board-svg-card{background:#f5f5f0!important}
+[data-theme="dark"] .board-svg-card svg{filter:none!important}
