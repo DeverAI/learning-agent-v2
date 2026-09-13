@@ -9,13 +9,15 @@ from logger import get_logger, log_error
 
 logger = get_logger()
 
-MAX_RETRIES = 2
+MAX_RETRIES = 3
 RETRY_DELAY = 3.0
-# 推理模型（本项目主力 deepseek-v4-pro）会把输出预算先花在 `reasoning_content` 上，
+# 推理模型（deepseek-v4-pro / v4-flash）会把输出预算先花在 `reasoning_content` 上，
 # 正文可能在预算耗尽时一个 token 都没轮到（`finish_reason=length` + `content` 为空）。
-# 实测同一个备课 prompt：2048 -> 正文 0 字；4096 仍为 0；8192 才拿到 1404 字。
-# 因此"空正文 + 撞上限"的重试**至少**要跳到这个值，只做 ×2 等于白烧一次调用。
-REASONING_SAFE_MIN = 8192
+# 实测（R32 服务器日志）：图生成 max_tokens=16384 → completion=16383, reasoning=16383, content 空。
+# 因此"空正文 + 撞上限"的重试**不能**再 ×2 从 16384 挪到 32768（仍可能整份给 reasoning）。
+# 策略：reasoning 占比 ≥95% 时直接跳到服务商上限；否则至少 REASONING_SAFE_MIN。
+REASONING_SAFE_MIN = 32768
+PROVIDER_MAX_TOKENS = 131072
 
 # Agent 步骤可视化：按 session_id 存储最近步骤（内存级，重启清空）
 _agent_step_stores: dict[str, list[dict]] = {}
@@ -388,30 +390,32 @@ class AIService:
                     content = msg_obj.get("content") or ""
                     if not str(content).strip():
                         finish_reason = choice.get("finish_reason", "")
+                        _usage = data.get("usage") or {}
+                        _details = _usage.get("completion_tokens_details") or {}
+                        reasoning_tokens = _safe_int(_details.get("reasoning_tokens"), 0) or 0
                         if finish_reason == "length" and attempt < MAX_RETRIES:
                             current_tokens = _safe_int(payload.get("max_tokens", 0), 0)
-                            # 至少跳到 REASONING_SAFE_MIN，不能只 ×2。
-                            #
-                            # 本项目主力模型是**推理模型**：预算会先被 `reasoning_content`
-                            # 吃掉。实测同一个备课 prompt：2048 -> 正文长度 0；
-                            # 只翻倍到 4096 仍然为 0；8192 才拿到 1404 字正文。
-                            # 所以"×2"在这种模型上等于多浪费一次调用。
-                            new_tokens = max(REASONING_SAFE_MIN,
-                                             min(max(current_tokens * 2, 1024), 131072))
+                            # R32：reasoning 占满预算时直接顶到服务商上限，
+                            # 不再从 16384 ×2 到 32768（服务器实测 32768 仍可能整份烧在 reasoning）。
+                            if reasoning_tokens and current_tokens and reasoning_tokens >= current_tokens * 0.95:
+                                new_tokens = PROVIDER_MAX_TOKENS
+                            else:
+                                new_tokens = max(REASONING_SAFE_MIN,
+                                                 min(max(current_tokens * 2, 1024), PROVIDER_MAX_TOKENS))
                             payload = dict(payload)
                             payload["max_tokens"] = new_tokens
-                            _usage = data.get("usage") or {}
-                            _details = _usage.get("completion_tokens_details") or {}
                             logger.warning(
-                                "AI returned empty content after token limit; "
-                                "retrying with max_tokens=%d (prev=%d, completion=%s, "
-                                "reasoning=%s) —— 推理模型把预算烧在 reasoning 上了",
+                                "AI empty content + finish_reason=length; "
+                                "retry max_tokens=%d (prev=%d, completion=%s, reasoning=%s)",
                                 new_tokens, current_tokens,
-                                _usage.get("completion_tokens"),
-                                _details.get("reasoning_tokens"),
+                                _usage.get("completion_tokens"), reasoning_tokens,
                             )
                             continue
-                        raise AIEmptyResponseError("AI returned empty assistant content")
+                        raise AIEmptyResponseError(
+                            "AI returned empty assistant content"
+                            + (f" (finish_reason={finish_reason}, reasoning={reasoning_tokens})"
+                               if finish_reason or reasoning_tokens else "")
+                        )
                     return str(content)
             except (httpx.TimeoutException, httpx.ReadError, httpx.WriteError) as e:
                 last_error = f"Network/Timeout: {type(e).__name__}: {e}"
@@ -656,7 +660,14 @@ class AIService:
     @staticmethod
     def _extract_json(text: str) -> dict:
         if not text or not text.strip():
-            raise Exception("AI returned empty response - generation truncated")
+            # R32：原先这里一律报「generation truncated」，但**空串不是截断**。
+            # 真实栈是 deepseek_solve -> _chat_json -> content 为空
+            # （reasoning 烧光 max_tokens / 401 / 空 choices 都可能）。
+            # 把「空」说成「截断」会误导排查方向。
+            raise Exception(
+                "AI returned empty response (content is blank; "
+                "not necessarily truncation — check keys/max_tokens/finish_reason)"
+            )
         import re
         text = text.strip()
         # Detect truncation

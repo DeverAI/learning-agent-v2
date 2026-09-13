@@ -17,6 +17,17 @@ from logger import get_logger, log_error
 
 logger = get_logger()
 
+
+def _ds_max(floor: int = 32768) -> int:
+    """图生成 token 预算：跟 settings.deepseek_max_tokens，至少 floor。
+    R32：写死 16384 时 reasoning 会吃满导致 content 空（服务器实测 completion=16383/reasoning=16383）。"""
+    try:
+        from services.ai_service import ai_service
+        return max(floor, int(getattr(ai_service, "ds_max_tokens", 0) or 0) or floor)
+    except Exception:
+        return floor
+
+
 _VALID_QUESTION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 _FUNCTION_YX_RE = re.compile(r"y\s*=\s*[^,\n]*x\b", re.IGNORECASE)
 
@@ -652,7 +663,7 @@ class DiagramService:
         try:
             svg_code = await ai_service.deepseek_chat(
                 [{"role": "user", "content": reasoning_prompt}],
-                max_tokens=16384, temperature=0.3, scope="diagram"
+                max_tokens=_ds_max(32768), temperature=0.3, scope="diagram"
             )
             import re as _re
             svg_match = _re.search(r'<svg[\s\S]*?</svg>', svg_code, _re.IGNORECASE)
@@ -689,7 +700,7 @@ class DiagramService:
                             )
                             svg_code2 = await ai_service.deepseek_chat(
                                 [{"role": "user", "content": fix_prompt}],
-                                max_tokens=16384, temperature=0.3, scope="diagram"
+                                max_tokens=_ds_max(32768), temperature=0.3, scope="diagram"
                             )
                             svg_match2 = _re.search(r'<svg[\s\S]*?</svg>', svg_code2, _re.IGNORECASE)
                             if svg_match2:
@@ -1273,7 +1284,7 @@ class DiagramService:
                     try:
                         fix_spec = await ai_service.deepseek_json([{"role":"user","content":(
                             f"修正组件拼装JSON。审查意见：{issues}\n原需求：{prompt[:200]}\n当前：{json.dumps(spec_json, ensure_ascii=False)[:1000]}"
-                        )}], max_tokens=8192, scope="diagram")
+                        )}], max_tokens=_ds_max(32768), scope="diagram")
                     except Exception as _fe:
                         logger.warning("GLM fix spec failed for %s/%d: %s", question_id, index, _fe)
                     if fix_spec:
@@ -1330,7 +1341,7 @@ class DiagramService:
         result = await ai_service.deepseek_json([
             {"role": "system", "content": system},
             {"role": "user", "content": f"题目：{prompt}{visual_hint}\n请推理坐标。"}
-        ], max_tokens=8192, scope="diagram")
+        ], max_tokens=_ds_max(32768), scope="diagram")
 
         return result
 
@@ -1362,7 +1373,7 @@ class DiagramService:
         svg_code = await ai_service.deepseek_chat([
             {"role": "system", "content": system},
             {"role": "user", "content": f"生成示意图：{prompt}\n直接输出SVG代码，不要markdown包裹。"}
-        ], max_tokens=16384, scope="diagram")
+        ], max_tokens=_ds_max(32768), scope="diagram")
 
         import re
         match = re.search(r'<svg[\s\S]*?</svg>', svg_code, re.IGNORECASE)
