@@ -61,7 +61,8 @@ _DIALOGUE_SYSTEM = (
     "15. 备课、生成可编辑课稿（prepare_lesson，后台生成、立刻返回、可取消）"
     "16. 查看已备课稿（list_lessons）17. 读课稿、可切片（read_lesson）"
     "18. 改课稿的某一片（edit_lesson）"
-    "19. 今日补漏清单（review_plan，学生问「该学什么」时用它）\n"
+    "19. 今日补漏清单（review_plan，学生问「该学什么」时用它）"
+    "20. 智能上传后整理并备课（import_and_prep）\n"
     "【输出格式】使用Markdown：## 小标题 / **粗体** / 1.2.3.有序列表 / $...$数学公式。"
     "禁止emoji、禁止彩色文字。"
 )
@@ -1582,6 +1583,122 @@ async def h_edit_lesson(c: Ctx) -> dict:
                             "data": {"total": 1, "lessons": [brief]}}, tool_calls=True)
 
 
+async def h_import_and_prep(c: Ctx) -> dict:
+    """R30：智能上传之后的一条龙 —— 汇总导入结果，并启动备课。
+
+    学生流程：整卷页「智能上传」丢一堆文件 → 在 Agent 说「整理并备课」。
+    本工具**不接收文件**（文件走 HTTP 上传），只消费已有导入结果：
+    - session_id：试卷会话内的题
+    - 或最近 source_type in (photo/pdf_page/text/docx) 且 capture_group_id 相同的题
+    - 有 paper_id 则备课挂试卷；否则挂 topic
+    """
+    from models.database import async_session
+    from models.models import Question, UploadSession
+    from sqlalchemy import select, desc
+    from services import lesson_service as _ls
+
+    topic = str(c.data.get("topic") or "").strip()
+    subject = str(c.data.get("subject") or "").strip()
+    grade = str(c.data.get("grade") or "").strip()
+    session_id = str(c.data.get("session_id") or "").strip()
+    paper_id = str(c.data.get("paper_id") or "").strip()
+    make_paper = bool(c.data.get("make_paper"))
+    try:
+        section_count = max(2, min(int(c.data.get("section_count") or 6), 16))
+    except (TypeError, ValueError):
+        section_count = 6
+
+    qids: list[str] = []
+    note_ids: list[str] = []
+    sess_title = ""
+
+    async with async_session() as db:
+        if session_id:
+            sess = await db.get(UploadSession, session_id)
+            if sess:
+                qids = [str(x) for x in (sess.question_ids or []) if x]
+                sess_title = sess.title or ""
+        if not qids:
+            # 最近智能上传/导入的题（近 2 小时内 staged/done 的 pdf/text/photo）
+            from datetime import datetime, timedelta, timezone
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
+            r = await db.execute(
+                select(Question.id, Question.ocr_text, Question.subject)
+                .where(Question.source_type.in_(("photo", "pdf_page", "text", "docx")))
+                .where(Question.created_at >= cutoff)
+                .order_by(desc(Question.created_at))
+                .limit(30)
+            )
+            rows = r.all()
+            qids = [row[0] for row in rows]
+            if not subject and rows:
+                subject = rows[0][2] or subject
+
+        # 最近笔记
+        from models.models import Note
+        rn = await db.execute(
+            select(Note.id).order_by(desc(Note.updated_at)).limit(5)
+        )
+        note_ids = [x[0] for x in rn.all()]
+
+    if not qids and not note_ids:
+        reply = (
+            "最近没有找到导入的题目或笔记。"
+            "请先到「整卷上传 → 智能上传」把图片/PDF/Word/文本丢进去，"
+            "等处理完成后再对我说「整理并备课」。"
+        )
+        c.commit(reply)
+        return c.finish(reply, {"type": "import_prep", "data": {"ok": False, "reason": "empty"}})
+
+    # 备课
+    if not topic:
+        topic = sess_title or subject or "导入内容整理"
+    try:
+        brief = await _ls.create_lesson({
+            "topic": topic, "subject": subject, "grade": grade,
+            "question_ids": qids[:20], "paper_id": paper_id,
+        }, title=f"导入备课 · {topic}")
+        task = None
+        from services import background_agent as BA
+        task = await BA.create_task(
+            sid=c.sid, tool="prepare_lesson",
+            title=f"备课：{topic}",
+            params={"lesson_id": brief["lesson_id"], "section_count": section_count},
+        )
+        BA.spawn(task["task_id"])
+        lesson_id = brief["lesson_id"]
+    except Exception as exc:
+        log_error("agent.import_and_prep", str(exc)[:200])
+        reply = f"已找到导入内容（题 {len(qids)} / 笔记 {len(note_ids)}），但备课启动失败：{exc}"
+        c.commit(reply)
+        return c.finish(reply, {"type": "import_prep",
+                                "data": {"ok": False, "question_count": len(qids)}})
+
+    lines = [
+        f"已接上导入内容，开始备课「{topic}」。",
+        f"- 题目：{len(qids)} 道（最近导入）",
+        f"- 笔记：{len(note_ids)} 篇",
+        f"- 课稿骨架：{lesson_id}（后台生成 {section_count} 片，完成后会召回）",
+        "你可以在「课稿」页查看/改讲解词；也可说「读课稿」。",
+    ]
+    if make_paper and not paper_id:
+        lines.append("如需组卷，告诉我「确认自动组卷」，或到组卷中心操作。")
+    reply = "\n".join(lines)
+    agent_tool_calls_add(c.sid, "导入整理并备课",
+                         {"topic": topic, "question_count": len(qids)},
+                         f"课稿 {lesson_id}", "done")
+    c.commit(reply)
+    return c.finish(reply, {
+        "type": "agent_task",
+        "data": {
+            "task_id": task["task_id"] if task else "",
+            "lesson_id": lesson_id,
+            "question_ids": qids[:20],
+            "note_ids": note_ids,
+        },
+    }, tool_calls=True)
+
+
 async def h_review_plan(c: Ctx) -> dict:
     """今日补漏清单：把课程体系 + 掌握度 + 错题合成一份可执行的清单。"""
     from services import curriculum_service as _cs
@@ -1713,6 +1830,14 @@ _TOOL_SPECS = [
          params_hint="lesson_id/section_index(从0开始)/heading(可选)/script(可选)",
          foreground=True, requires_confirm="确认修改课稿",
          aliases=("update_lesson",)),
+    # ---- R30：导入后一条龙（分类→题/笔记/卷→备课）----
+    Tool("import_and_prep", "导入整理并备课",
+         "学生已用智能上传丢过文件后：汇总本次导入（题目/笔记/试卷会话），"
+         "并**接着备课**生成可编辑课稿。"
+         "学生说「把刚才传的整理好并备课/出卷备课」时用这个",
+         params_hint="topic(课主题)/subject/grade/paper_id(可选)/session_id(可选)/make_paper(是否组卷)/section_count",
+         foreground=True, cancellable=True,
+         aliases=("bulk_import", "import_prep", "整理并备课")),
     # ---- 后台任务召回（R23）----
     # 正常用户消息不应判成这个；带 [系统召回] 前缀的消息在 sessions.py
     # 已走确定性旁路，这里登记主要是兜底与保持「表驱动」一致性。
@@ -1753,6 +1878,7 @@ _HANDLERS = {
     "list_lessons": h_list_lessons,
     "read_lesson": h_read_lesson,
     "edit_lesson": h_edit_lesson,
+    "import_and_prep": h_import_and_prep,
     # ---- 后台任务召回（R23）----
     "task_recall": h_task_recall,
 }

@@ -1,60 +1,80 @@
 {% extends "base.html" %}
 {% block content %}
-<div style="max-width:760px;margin:0 auto;padding:14px">
-  <h2 style="margin:4px 0 10px">客户端下载</h2>
+<div style="max-width:640px;margin:0 auto;padding:12px 14px 28px">
+  <div style="text-align:center;margin:8px 0 18px">
+    <div style="font-size:22px;font-weight:700;letter-spacing:.5px">学习搭子</div>
+    <div style="font-size:13px;color:var(--text2);margin-top:4px">初三补漏 · 自招拔高 · 随时可学</div>
+  </div>
 
-  <div class="card" style="padding:14px;margin-bottom:10px">
-    <div style="font-weight:600;margin-bottom:4px">安卓应用（APK）</div>
-    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
-      学习搭子 Android 客户端：WebView 壳 + 原生 TTS 讲课桥 + 原生语音识别桥 + 相机/麦克风授权。
-      {% if dl.apk.version_text %}当前版本 {{ dl.apk.version_text }}（读取自构建脚本）。{% endif %}
-      首次打开需要填写服务器地址（本站在浏览器里的地址）。
+  <!-- 安卓 -->
+  <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">A</div>
+      <div>
+        <div style="font-weight:700">安卓 App</div>
+        <div style="font-size:12px;color:var(--text3)">
+          {% if dl.apk.version_text %}{{ dl.apk.version_text }} · {% endif %}
+          {% if dl.apk.exists %}{{ dl.apk.size_text }}{% else %}暂无安装包{% endif %}
+        </div>
+      </div>
+    </div>
+    <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
+      原生拍照 / 语音识别 / TTS 讲课 · 桌面小组件 · 离线可看已缓存课稿。
+      首次打开填服务器地址即可。
     </p>
     {% if dl.apk.exists %}
-    <a class="btn btn-primary" style="display:inline-block;padding:10px 18px;margin-top:6px"
-       href="/static/downloads/{{ dl.apk.filename }}" download>下载 APK（{{ dl.apk.size_text }}）</a>
-    <span style="margin-left:10px;color:var(--text3);font-size:var(--fs-xs)">
-      包内实际文件：{{ dl.apk.filename }}，构建日期 {{ dl.apk.date_text }}
-    </span>
+    <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
+       href="/static/downloads/{{ dl.apk.filename }}" download>下载安卓 APK</a>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
+      {{ dl.apk.filename }} · {{ dl.apk.date_text }}
+    </div>
     {% else %}
-    <p style="margin:6px 0;color:var(--err);font-size:var(--fs-sm)">
-      APK 文件不在服务器上（{{ dl.apk.filename }}），下载入口暂不可用。
-    </p>
+    <div style="color:var(--err);font-size:13px;margin-top:8px">安装包尚未上传到服务器</div>
     {% endif %}
   </div>
 
-  <div class="card" style="padding:14px;margin-bottom:10px">
-    <div style="font-weight:600;margin-bottom:4px">桌面端（Windows，PyQt）</div>
-    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
-      文化课桌面工具：课堂监听与 AI 补讲、讲题引擎、TTS 朗读、屏幕标注；
-      课堂笔记可经「设置 - 成果互通」同步到本服务器的笔记页。
-      需要 Python 3.10+，解压后 <code>pip install -r requirements.txt</code>，运行 <code>python main.py</code>。
+  <!-- 桌面 -->
+  <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">PC</div>
+      <div>
+        <div style="font-weight:700">Windows 桌面端</div>
+        <div style="font-size:12px;color:var(--text3)">
+          {% if dl.desktop.exists %}{{ dl.desktop.size_text }} · 源码包{% else %}暂无压缩包{% endif %}
+        </div>
+      </div>
+    </div>
+    <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
+      网课旁听 · Ctrl+Alt+A 随时打断提问 · 板书卡片 · 课堂笔记可同步到网页。
+      需 Python 3.10+：解压后 <code style="font-size:12px">pip install -r requirements.txt</code>
+      再 <code style="font-size:12px">python main.py</code>。
     </p>
     {% if dl.desktop.exists %}
-    <a class="btn btn-primary" style="display:inline-block;padding:10px 18px;margin-top:6px"
-       href="/static/downloads/{{ dl.desktop.filename }}" download>下载桌面端（{{ dl.desktop.size_text }}，源码包）</a>
-    <span style="margin-left:10px;color:var(--text3);font-size:var(--fs-xs)">
-      包内实际文件：{{ dl.desktop.filename }}，打包日期 {{ dl.desktop.date_text }}
-    </span>
+    <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
+       href="/static/downloads/{{ dl.desktop.filename }}" download>下载桌面端</a>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
+      {{ dl.desktop.filename }} · {{ dl.desktop.date_text }}
+    </div>
     {% else %}
-    <p style="margin:6px 0;color:var(--err);font-size:var(--fs-sm)">
-      桌面端压缩包不在服务器上（{{ dl.desktop.filename }}），下载入口暂不可用。
-    </p>
+    <div style="color:var(--err);font-size:13px;margin-top:8px">桌面端压缩包尚未上传到服务器</div>
     {% endif %}
   </div>
 
-  <div class="card" style="padding:14px;margin-bottom:10px">
-    <div style="font-weight:600;margin-bottom:4px">网页版 / PWA（免安装）</div>
-    <p style="margin:4px 0;color:var(--text2);font-size:var(--fs-sm)">
-      手机或电脑浏览器直接打开本站即可使用全部功能；支持「添加到主屏幕」作为 PWA 安装。
-      讲课入口：侧边栏「讲课」。
+  <!-- 网页 -->
+  <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">W</div>
+      <div style="font-weight:700">网页版 / PWA</div>
+    </div>
+    <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
+      打开本站即可用全部功能；可「添加到主屏幕」。智能上传、课稿、讲课都在侧栏。
     </p>
+    <a class="btn" style="display:flex;width:100%;min-height:44px;align-items:center;justify-content:center;margin-top:8px;text-decoration:none"
+       href="/">进入网页版</a>
   </div>
 
-  <p style="color:var(--text3);font-size:var(--fs-xs);margin:8px 2px">
-    下载文件由服务器静态目录直出。
-    页面上的体积与日期由服务器<b>读取磁盘上的实际文件</b>生成，不是手写的，
-    所以不会出现「页面写着新版本、实际下载到旧包」。
+  <p style="color:var(--text3);font-size:11px;text-align:center;margin-top:16px;line-height:1.5">
+    体积与日期由服务器读磁盘真实文件生成，不会出现「页面写新版、下载到旧包」。
   </p>
 </div>
 {% endblock %}

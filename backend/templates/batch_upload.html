@@ -356,20 +356,40 @@ function _smartReset(){
   document.getElementById('smartResult').innerHTML='';
 }
 function _smartAddFiles(list){
-  var files=Array.prototype.slice.call(list||[]).filter(function(f){
-    return /^image\//.test(f.type)&&f.size&&f.size<=10*1024*1024;
+  // R30：后端已支持图片/PDF/Word/文本，前端不能再只收 image/*（原先 JPG/PNG/WebP 之外全被丢掉）
+  var MAXB=50*1024*1024;
+  var ok=[], skipped=[];
+  Array.prototype.slice.call(list||[]).forEach(function(f){
+    var name=(f.name||'').toLowerCase();
+    var type=(f.type||'').toLowerCase();
+    var isImg=/^image\//.test(type)||/\.(jpe?g|png|webp|gif|bmp)$/.test(name);
+    var isDoc=/pdf|word|officedocument|text\/plain|markdown/.test(type)||/\.(pdf|docx?|txt|md|markdown)$/.test(name);
+    if(!f.size||f.size>MAXB){skipped.push(f.name+'（空或>50MB）');return}
+    if(isImg||isDoc||!type){ok.push(f)}
+    else skipped.push(f.name||'?');
   });
-  if(!files.length){_smartStatus('没有可用图片（需 JPG/PNG/WebP 且 ≤10MB）','error');return}
-  _smartFiles=_smartFiles.concat(files).slice(0,12);
+  if(skipped.length){_smartStatus('已跳过：'+skipped.slice(0,3).join('、')+(skipped.length>3?'…':''),'error')}
+  if(!ok.length){_smartStatus('没有可用文件（图片/PDF/Word/文本）','error');return}
+  _smartFiles=_smartFiles.concat(ok).slice(0,20);
   var box=document.getElementById('smartPreviews');
   box.innerHTML='';box.style.display='grid';
   _smartFiles.forEach(function(f){
-    var img=document.createElement('img');
-    img.className='upload-preview';img.alt=f.name;img.title=f.name;
-    try{img.src=URL.createObjectURL(f)}catch(e){}
-    box.appendChild(img);
+    var isImg=/^image\//.test((f.type||'').toLowerCase())||/\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name||'');
+    if(isImg){
+      var img=document.createElement('img');
+      img.className='upload-preview';img.alt=f.name;img.title=f.name;
+      try{img.src=URL.createObjectURL(f)}catch(e){}
+      box.appendChild(img);
+    }else{
+      var d=document.createElement('div');
+      d.className='upload-preview';
+      d.style.cssText='display:flex;align-items:center;justify-content:center;min-height:64px;font-size:11px;padding:6px;border:1px solid var(--border);border-radius:6px;word-break:break-all';
+      d.title=f.name;
+      d.textContent=(f.name||'文件').slice(0,28);
+      box.appendChild(d);
+    }
   });
-  _smartStatus('已选 '+_smartFiles.length+' 张','info');
+  _smartStatus('已选 '+_smartFiles.length+' 个文件','info');
 }
 function _smartFormData(endpoint){
   var fd=new FormData();

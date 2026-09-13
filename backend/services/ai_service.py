@@ -1312,7 +1312,9 @@ class AIService:
             prompt += '}\n\n'
         return await self.deepseek_json([{"role":"user","content":prompt}], max_tokens=32768, scope="solve")
 
-    # ===================== 智谱AI (GLM) 主力视觉模型 =====================
+    # ===================== 视觉主力：小米 MiMo V2.5 全模态 =====================
+    # Fact.md 定规（2026-09-06，R30 重申）：图像识别一律 MiMo 优先；
+    # ZhipuAI 视觉仅作回退。调用统一走 `vision_mimo_first`，不要直调 zhipuai_vision。
 
     async def zhipuai_chat(self, messages: list, model: str = "glm-4v-flash",
                            temperature: float = 1, max_tokens: int = 16384) -> str:

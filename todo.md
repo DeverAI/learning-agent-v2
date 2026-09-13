@@ -1,9 +1,16 @@
-# todo.md —— 2026-09-13（R4→R28：… R27 深检 + **R28 部署上线**）
 
-> 回归基线：本地 **320 passed**；线上 health **200**
+## R29：智能上传任意文件（2026-09-13）
+
+- [x] 图片 / PDF（按页）/ Word / 纯文本；扫描版 PDF 与二进制垃圾如实 400
+- [x] 文本题/笔记 skip_ocr；PDF 页可挂同一试卷会话
+- [x] 已部署；公网 `/api/smart-upload/accept` 200
+- [x] GitHub `5c3e4f5`
+# todo.md —— 2026-09-13（R4→R29：R28 部署 + **R29 智能上传任意文件**）
+
+> 回归基线：本地 **327 passed**；线上 health **200** / accept **200**
 > **最新：`updates/20260913_部署上线_R28.md`** · R27：`updates/20260912_深检_智能上传真入库与PDF导入_R27.md`
 > 服务器：http://8.138.12.209:8000/ · LearningAgent+LearningWatchdog 均 AUTO_START
-> Git：本地 commit 60036bc（**push 因网络失败，待重推**）
+> Git：已推送 `5c3e4f5`（含 R28 `60036bc`）
 
 ## ⚠️ 最重要的一条：系统内容为空的实测结论（2026-09-12）
 

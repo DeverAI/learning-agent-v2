@@ -346,24 +346,46 @@ def _resolve_connections(components: list[dict], connections: list[tuple], custo
                            ", ".join(missing))
             continue
 
+        # R30：端口偏移必须与前端 `_portPos` 同一语义，否则「后端对齐了、图上没对齐」。
+        # 1) 铁圈 ring_top/ring_bottom 随 clamp_y 动态取 dy（静态表里的 dy 是默认位）
+        # 2) 按 comp.w/h / default_w/h 线性缩放（组件被拉伸时端口跟着走）
+        def _eff_dy(comp_type: str, comp: dict, port: dict) -> float:
+            if comp_type == "iron_stand" and port.get("id") in ("ring_top", "ring_bottom"):
+                base = comp.get("clamp_y")
+                if not isinstance(base, (int, float)):
+                    base = 42.0
+                base = max(4.0, min(73.0, float(base)))
+                return base - 2.5 if port["id"] == "ring_top" else base + 2.5
+            return float(port.get("dy", 0))
+
+        def _port_abs(comp_type: str, comp: dict, port: dict, cdef: dict) -> tuple[float, float]:
+            dw = float(cdef.get("default_w") or 1) or 1.0
+            dh = float(cdef.get("default_h") or 1) or 1.0
+            sx = float(comp.get("w") or dw) / dw
+            sy = float(comp.get("h") or dh) / dh
+            dy = _eff_dy(comp_type, comp, port)
+            return (float(comp.get("x", 0)) + float(port.get("dx", 0)) * sx,
+                    float(comp.get("y", 0)) + dy * sy)
+
+        sx_abs, sy_abs = _port_abs(src_type, src_comp, sp, src_def)
+        dx_abs, dy_abs = _port_abs(dst_type, dst_comp, dp, dst_def)
+        gap = float(dp.get("gap", 0) or 0) - float(sp.get("gap", 0) or 0)
+
         # If destination is locked → move source to align with destination
         if dst_comp.get("locked", False):
-            src_comp["x"] = dst_comp.get("x", 0) + dp["dx"] - sp["dx"]
-            # y 方向叠加 gap：仅垂直 gap（火焰顶到容器底），用于在端口对齐基础上留出视觉间距
-            src_comp["y"] = dst_comp.get("y", 0) + dp["dy"] - sp["dy"] + dp.get("gap", 0) - sp.get("gap", 0)
+            src_comp["x"] = float(src_comp.get("x", 0)) + (dx_abs - sx_abs)
+            src_comp["y"] = float(src_comp.get("y", 0)) + (dy_abs - sy_abs) + gap
             continue
 
         # If source is locked → move destination to align with source
         if src_comp.get("locked", False):
-            dst_comp["x"] = src_comp.get("x", 0) + sp["dx"] - dp["dx"]
-            dst_comp["y"] = src_comp.get("y", 0) + sp["dy"] - dp["dy"] + dp.get("gap", 0) - sp.get("gap", 0)
+            dst_comp["x"] = float(dst_comp.get("x", 0)) + (sx_abs - dx_abs)
+            dst_comp["y"] = float(dst_comp.get("y", 0)) + (sy_abs - dy_abs) + gap
             continue
 
-        # Both unlocked → get source position and move destination
-        sx = src_comp.get("x", 0)
-        sy = src_comp.get("y", 0)
-        dst_comp["x"] = sx + sp["dx"] - dp["dx"]
-        dst_comp["y"] = sy + sp["dy"] - dp["dy"] + dp.get("gap", 0) - sp.get("gap", 0)
+        # Both unlocked → move destination so its port lands on source port
+        dst_comp["x"] = float(dst_comp.get("x", 0)) + (sx_abs - dx_abs)
+        dst_comp["y"] = float(dst_comp.get("y", 0)) + (sy_abs - dy_abs) + gap
 
     return components
 
