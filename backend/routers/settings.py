@@ -66,7 +66,7 @@ class SettingsUpdate(BaseModel):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-pro"
-    deepseek_max_tokens: int = Field(16384, ge=256, le=131072)
+    deepseek_max_tokens: int = Field(131072, ge=256, le=131072)
     kimi_api_key: str = ""
     kimi_base_url: str = "https://api.moonshot.cn/v1"
     kimi_model: str = "kimi-k2.6"
@@ -187,7 +187,7 @@ async def get_settings():
         "xiaomi_token_plan_api_key": mask_key(s.get("xiaomi_token_plan_api_key", "")) if has_xm else "",
         "deepseek_base_url": s.get("deepseek_base_url", "https://api.deepseek.com"),
         "deepseek_model": s.get("deepseek_model", "deepseek-v4-pro"),
-        "deepseek_max_tokens": s.get("deepseek_max_tokens", 16384),
+        "deepseek_max_tokens": s.get("deepseek_max_tokens", 131072),
         "kimi_base_url": s.get("kimi_base_url", "https://api.moonshot.cn/v1"),
         "kimi_model": s.get("kimi_model", "kimi-k2.6"),
         "kimi_max_tokens": s.get("kimi_max_tokens", 4096),

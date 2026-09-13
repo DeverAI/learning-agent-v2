@@ -750,9 +750,13 @@ class AIService:
     # ===================== DeepSeek: 推理解题 =====================
 
     async def deepseek_chat(self, messages: list, temperature: float = 0.3,
-                            max_tokens: int = 32768, scope: str = "",
+                            max_tokens: int = None, scope: str = "",
                             enable_calc: bool = False, calc_session: str = "",
                             step_callback=None) -> str:
+        # R31：默认跟服务商上限（settings.deepseek_max_tokens），不把推理预算写死。
+        # 调用点若显式传更小值仍尊重调用点（历史 16384/32768 路径）。
+        if max_tokens is None:
+            max_tokens = self.ds_max_tokens or 131072
         if step_callback:
             step_callback("对话Agent", "调用推理模型", "running")
         # 未显式传入 calc_session 时使用一次性会话并在结束后清理，

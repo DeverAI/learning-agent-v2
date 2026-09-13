@@ -84,7 +84,7 @@ async def h_dialogue(c: Ctx) -> dict:
     if c.step_callback:
         c.step_callback(step_parent, "生成回复", "running")
     reply = await ai_service.deepseek_chat(
-        full_messages, max_tokens=16384, scope="chat", step_callback=c.step_callback
+        full_messages, scope="chat", step_callback=c.step_callback
     )
     if c.step_callback:
         c.step_callback(step_parent, "生成回复", "done")

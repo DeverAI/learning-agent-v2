@@ -323,7 +323,7 @@
       document.getElementById('dsUrl').value=s.deepseek_base_url||'https://api.deepseek.com';
       document.getElementById('dsModel').value=s.deepseek_model||'deepseek-v4-pro';
       document.getElementById('dsModelDisplay').textContent=s.deepseek_model||'deepseek-v4-pro';
-      document.getElementById('dsMaxTokens').value=s.deepseek_max_tokens||16384;
+      document.getElementById('dsMaxTokens').value=s.deepseek_max_tokens||131072;
       document.getElementById('kimiUrl').value=s.kimi_base_url||'https://api.moonshot.cn/v1';
       document.getElementById('kimiModel').value=s.kimi_model||'kimi-k2.6';
       document.getElementById('kimiModelDisplay').textContent=s.kimi_model||'kimi-k2.6';
@@ -487,7 +487,7 @@
     window.$API.put('/api/settings',{
       deepseek_api_key:ds,deepseek_base_url:document.getElementById('dsUrl').value.trim(),
       deepseek_model:document.getElementById('dsModel').value.trim(),
-      deepseek_max_tokens:parseInt(document.getElementById('dsMaxTokens').value)||16384,
+      deepseek_max_tokens:parseInt(document.getElementById('dsMaxTokens').value)||131072,
       kimi_api_key:km,kimi_base_url:document.getElementById('kimiUrl').value.trim(),
       kimi_model:document.getElementById('kimiModel').value.trim(),
       kimi_max_tokens:parseInt(document.getElementById('kimiMaxTokens').value)||4096,

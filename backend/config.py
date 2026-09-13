@@ -252,7 +252,7 @@ _default_settings = {
     "zhipuai_base_url": "https://open.bigmodel.cn/api/paas/v4",
     "zhipuai_model": "glm-4v-flash",  # GLM 模型名（可改为 glm-4v / glm-4-flash 等）
     "zhipuai_max_tokens": 4096,
-    "deepseek_max_tokens": 16384,
+    "deepseek_max_tokens": 131072,  # 与服务商上限对齐，不限制推理模型思考预算
     "kimi_max_tokens": 4096,
     "custom_openai_key": "",
     "custom_openai_url": "",

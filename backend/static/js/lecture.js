@@ -102,8 +102,29 @@
       items[i].style.fontWeight = on ? '600' : '';
     }
     var c = currentStep();
-    $('lecPos').textContent = c ? ('· 第' + (state.planIdx + 1) + '题/' + state.plans.length
+    var posTxt = c ? ('· 第' + (state.planIdx + 1) + '题/' + state.plans.length
       + ' 第' + (state.stepIdx + 1) + '步') : '';
+    if ($('lecPos')) $('lecPos').textContent = posTxt;
+    if ($('lecBoardPos')) $('lecBoardPos').textContent = posTxt.replace(/^· /, '');
+    // R31：手机讲课主视图是黑板，当前步骤必须写进板，不能只高亮列表
+    var board = $('lecBoard');
+    if (board) {
+      if (!c || !c.step) {
+        board.innerHTML = '<div class="board-empty">尚未开始讲解</div>';
+      } else {
+        var title = c.step.title ? ('### ' + c.step.title + '\n\n') : '';
+        var body = c.step.content || c.step.text || c.step.detail || '';
+        if (!body && c.step.title) body = c.step.title;
+        var src = title + (body || '');
+        var holder = document.createElement('div');
+        holder.className = 'board-text';
+        if (typeof $md === 'function') $md(src, holder);
+        else holder.textContent = src;
+        board.innerHTML = '';
+        board.appendChild(holder);
+        board.scrollTop = 0;
+      }
+    }
   }
 
   function speakText(text) {

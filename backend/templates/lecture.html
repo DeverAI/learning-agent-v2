@@ -28,6 +28,16 @@
       </label>
     </div>
   </div>
+  <!-- R31：讲课黑板（手机主视图）——与专注模式共用 .board-* 样式 -->
+  <div class="board-wrap" id="lecBoardWrap" style="margin-top:10px">
+    <div class="board-toolbar">
+      <span class="board-toolbar-title">讲课黑板</span>
+      <span id="lecBoardPos" class="board-page-indicator"></span>
+    </div>
+    <div class="board-surface" id="lecBoard">
+      <div class="board-empty">开始讲解后，当前步骤会写在这里（手机上优先看这块板）</div>
+    </div>
+  </div>
   <div id="lecStatus" style="color:var(--text3);padding:8px 2px">就绪</div>
   <div class="card" style="padding:10px;margin-top:10px">
     <div style="font-weight:600;margin-bottom:6px">边看边问
