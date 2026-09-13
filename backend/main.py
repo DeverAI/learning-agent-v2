@@ -601,6 +601,38 @@ async def page_download(request: Request):
     return render_template("download.html", page="download", dl=out)
 
 
+@app.get("/dl/{kind}")
+async def download_client(kind: str):
+    """客户端下载出口（R33）。
+
+    为什么不用裸 /static/downloads/：
+    Windows 上 mimetypes 常不认识 .apk，StaticFiles 会回
+    application/octet-stream，浏览器另存为 **xxx.bin**（用户实测「安装包是 bin」）。
+    这里强制正确 MIME + RFC 5987 文件名。
+    """
+    from urllib.parse import quote
+    mapping = {
+        "android": ("学习搭子-Android.apk", "application/vnd.android.package-archive"),
+        "apk": ("学习搭子-Android.apk", "application/vnd.android.package-archive"),
+        "desktop": ("学习搭子-桌面端-20260912.zip", "application/zip"),
+        "windows": ("学习搭子-桌面端-20260912.zip", "application/zip"),
+    }
+    if kind not in mapping:
+        raise HTTPException(404, "未知下载项")
+    fname, ctype = mapping[kind]
+    path = os.path.join(STATIC_DIR, "downloads", fname)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "安装包尚未上传到服务器")
+    ascii_name = "LearningAgent-Android.apk" if fname.endswith(".apk") else "LearningAgent-Desktop.zip"
+    resp = FileResponse(path, media_type=ctype, filename=ascii_name)
+    # 中文原名给现代浏览器（filename*=UTF-8''...）
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
+    )
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
 @app.get("/batch-upload", response_class=HTMLResponse)
 async def page_batch_upload(request: Request):
     return render_template("batch_upload.html", page="batch")

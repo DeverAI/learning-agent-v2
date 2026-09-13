@@ -24,7 +24,7 @@
     </p>
     {% if dl.apk.exists %}
     <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
-       href="/static/downloads/{{ dl.apk.filename }}" download>下载安卓 APK</a>
+       href="/dl/android">下载安卓 APK</a>
     <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
       {{ dl.apk.filename }} · {{ dl.apk.date_text }}
     </div>
@@ -51,7 +51,7 @@
     </p>
     {% if dl.desktop.exists %}
     <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
-       href="/static/downloads/{{ dl.desktop.filename }}" download>下载桌面端</a>
+       href="/dl/desktop">下载桌面端</a>
     <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
       {{ dl.desktop.filename }} · {{ dl.desktop.date_text }}
     </div>
