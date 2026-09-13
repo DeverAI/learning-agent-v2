@@ -1,8 +1,9 @@
-# todo.md —— 2026-09-12（R4→R27：… R26 智能上传/小组件 + **R27 深检真缺陷 + 试卷 PDF 导入**）
+# todo.md —— 2026-09-13（R4→R28：… R27 深检 + **R28 部署上线**）
 
-> 回归基线：`python -m pytest backend` → **320 passed**（R27 后）
-> **最新一轮：`updates/20260912_深检_智能上传真入库与PDF导入_R27.md`**
-> R26：`updates/20260912_智能上传与小组件_R26.md`；R25：`updates/20260912_检修05_改密课稿难度打断_R25.md`
+> 回归基线：本地 **320 passed**；线上 health **200**
+> **最新：`updates/20260913_部署上线_R28.md`** · R27：`updates/20260912_深检_智能上传真入库与PDF导入_R27.md`
+> 服务器：http://8.138.12.209:8000/ · LearningAgent+LearningWatchdog 均 AUTO_START
+> Git：本地 commit 60036bc（**push 因网络失败，待重推**）
 
 ## ⚠️ 最重要的一条：系统内容为空的实测结论（2026-09-12）
 

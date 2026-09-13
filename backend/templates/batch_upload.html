@@ -11,10 +11,10 @@
 <div class="card" id="smart">
   <div class="card-title">智能上传（题目 / 笔记 / 试卷混传）</div>
   <p style="font-size:13px;color:var(--text2);margin-bottom:10px">
-    一页上既有题又有笔记？直接丢进来。系统先识别每页是什么，再分别送进题库、笔记或试卷会话。
-    分类不确定时会按题目处理并提示核对。
+    图片、PDF、Word、纯文本都可以丢进来。系统识别每份内容是题目/笔记/试卷再分别入库。
+    文字版 PDF 按页展开；扫描版请改传照片。分类不确定时会按题目处理并提示核对。
   </p>
-  <input type="file" id="smartFileInput" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+  <input type="file" id="smartFileInput" accept="image/*,.pdf,.docx,.txt,.md,.markdown,application/pdf,text/plain" multiple style="display:none">
   <div class="upload-zone" id="smartDropZone" role="button" tabindex="0" aria-label="智能上传图片">
     <p>点击或拖拽上传混合页（最多 12 张）</p>
     <p class="hint">例如：第1页试卷、第2页错题、第3页概念笔记</p>
