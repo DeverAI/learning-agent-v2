@@ -69,6 +69,16 @@ class _CalculatorSession:
         if len(expr) > MAX_EXPR_LEN:
             raise CalculatorError("表达式过长")
 
+        # R36：真 LLM 跑测发现模型会一次丢多条式子，用 ; 分隔。
+        # ast.parse(mode="eval") 对 "a; b" 直接 SyntaxError，整次工具调用白烧。
+        # 改为按 ; 拆开逐条求值，返回最后一条；前面结果可作 prev_result。
+        parts = [p.strip() for p in expr.split(";") if p and p.strip()]
+        if len(parts) > 1:
+            outs = []
+            for part in parts[:8]:  # 上限防一次塞几十条
+                outs.append(self.evaluate(part))
+            return outs[-1] if outs else ""
+
         self.call_count += 1
         # 安全替换 prev_result 为上一次的完整结果
         if "prev_result" in expr:
