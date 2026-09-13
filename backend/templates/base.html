@@ -34,6 +34,8 @@
 <script defer src="/static/js/app.js"></script>
 <script src="/storage/vendor/marked.min.js?v=1"></script>
 <script defer src="/storage/vendor/katex/katex.min.js?v=1"></script>
+<!-- R34：没有 auto-render 就没有 renderMathInElement，$md 里 KaTeX 分支永远走不起来 -->
+<script defer src="/storage/vendor/katex/auto-render.min.js?v=1"></script>
 <!-- mermaid 是本项目**唯一**的 CDN 依赖（marked / katex 都已 vendor 到 /storage/vendor/，
      建议后续一并本地化，彻底去掉外网依赖）。这里用 async 而非 defer：defer 脚本必须全部
      执行完才会触发 DOMContentLoaded，CDN 被墙或悬挂时会把整页交互一起拖住（校园网下
@@ -120,6 +122,11 @@ window.addEventListener('themeChanged',function(){var n=localStorage.getItem('ac
       {% if enable_correct %}
       <a href="/correctCenter" class="{{ 'active' if page == 'correct' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>批改中心</a>
       {% endif %}
+      <!-- R34：学习主动线一级入口（原先讲课/课稿埋在管理里，智能上传埋在试卷里） -->
+      <a href="/batch-upload#smart" class="{{ 'active' if page == 'batch' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><rect x="3" y="15" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/></svg>智能上传</a>
+      <a href="/lecture" class="{{ 'active' if page == 'lecture' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>讲课</a>
+      <a href="/lessons" class="{{ 'active' if page == 'lessons' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>课稿</a>
+      <a href="/notes" class="{{ 'active' if page == 'notes' else '' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>笔记</a>
 
       <div class="menu-group" onclick="toggleMenu('paperMenu')">
         <span class="menu-arrow {{ 'open' if page in ('papers','generate','batch') else '' }}" id="arrow_paperMenu">&triangleright;</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px"><path d="M9 8H15M9 12H15M9 16H12M8.2 21H15.8C16.9201 21 17.4802 21 17.908 20.782C18.2843 20.5903 18.5903 20.2843 18.782 19.908C19 19.4802 19 18.9201 19 17.8V6.2C19 5.0799 19 4.51984 18.782 4.09202C18.5903 3.71569 18.2843 3.40973 17.908 3.21799C17.4802 3 16.9201 3 15.8 3H8.2C7.0799 3 6.51984 3 6.09202 3.21799C5.71569 3.40973 5.40973 3.71569 5.21799 4.09202C5 4.51984 5 5.07989 5 6.2V17.8C5 18.9201 5 19.4802 5.21799 19.908C5.40973 20.2843 5.71569 20.5903 6.09202 20.782C6.51984 21 7.07989 21 8.2 21Z"/></svg>试卷管理
@@ -142,9 +149,7 @@ window.addEventListener('themeChanged',function(){var n=localStorage.getItem('ac
         <a href="/diagnose" class="{{ 'active' if page == 'diagnose' else '' }}">诊断</a>
         <a href="/prompts" class="{{ 'active' if page == 'prompts' else '' }}">Prompt</a>
         <a href="/qa" class="{{ 'active' if page == 'qa' else '' }}">Q&A</a>
-        <a href="/lecture" class="{{ 'active' if page == 'lecture' else '' }}">讲课</a>
-        <a href="/lessons" class="{{ 'active' if page == 'lessons' else '' }}">课稿</a>
-      <a href="/download" class="{{ 'active' if page == 'download' else '' }}">下载</a>
+        <a href="/download" class="{{ 'active' if page == 'download' else '' }}">下载</a>
       </div>
     </nav>
     <div style="padding:8px;border-top:1px solid var(--border)">

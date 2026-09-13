@@ -208,7 +208,11 @@ def sniff_kind(filename: str, content_type: str, raw: bytes) -> str:
 
 
 def extract_pdf_pages(raw: bytes) -> list[str]:
-    """文字版 PDF 按页抽文本；扫描版页为空串。"""
+    """文字版 PDF 按页抽文本；扫描版页为空串。
+
+    R34：Adobe Symbol 字体的公式会被 pypdf 抽成 U+F020–F0FF 私有区字符
+    （`2y x x a x` + 乱码），必须 remap 成 Unicode，否则解题模型只能质疑。
+    """
     import io
     try:
         from pypdf import PdfReader
@@ -217,10 +221,11 @@ def extract_pdf_pages(raw: bytes) -> list[str]:
     reader = PdfReader(io.BytesIO(raw))
     if len(reader.pages) > MAX_PDF_PAGES:
         raise ValueError(f"PDF 最多 {MAX_PDF_PAGES} 页（当前 {len(reader.pages)}）")
+    from services.pdf_math_remap import remap_symbol_pua
     pages = []
     for page in reader.pages:
         try:
-            pages.append((page.extract_text() or "").strip())
+            pages.append(remap_symbol_pua((page.extract_text() or "").strip()))
         except Exception:
             pages.append("")
     return pages

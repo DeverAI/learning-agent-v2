@@ -1056,19 +1056,17 @@ async def session_import_pdf(
     if len(reader.pages) > 60:
         raise HTTPException(400, f"一次最多导入 60 页（当前 {len(reader.pages)} 页），请分卷上传")
 
-    pages_text: list[str] = []
-    for page in reader.pages:
-        try:
-            pages_text.append((page.extract_text() or "").strip())
-        except Exception:
-            pages_text.append("")
+    # R34：多源摄入（pypdf+PUA 重映射 + 页图视觉 OCR），不再只靠 pypdf 乱码文本
+    from services import pdf_ingest
+    ingested = await pdf_ingest.ingest_pdf_pages(raw, use_vision=True)
+    if not ingested:
+        raise HTTPException(400, "PDF 无法摄入（解析/渲染均失败）")
 
-    nonempty = sum(1 for t in pages_text if t)
+    nonempty = sum(1 for it in ingested if (it.get("text") or "").strip())
     if nonempty == 0:
         raise HTTPException(
             400,
-            "这份 PDF 抽不出文字（多半是扫描版）。"
-            "请用手机拍照走「智能上传 / 整卷上传」，或提供文字版 PDF。",
+            "这份 PDF 既抽不出文字、页图 OCR 也为空。请改用手机拍照上传。",
         )
 
     from models.models import UploadSession
@@ -1080,16 +1078,29 @@ async def session_import_pdf(
     ids: list[str] = []
     folders: list[str] = []
     try:
-        for i, text in enumerate(pages_text):
+        for it in ingested:
+            text = (it.get("text") or "").strip()
             if not text:
                 continue
             qid = gen_id()
             folder = os.path.join(QUESTIONS_DIR, qid)
             os.makedirs(folder, exist_ok=False)
             folders.append(folder)
+            # 页图落盘，process_image 可当原题图
+            png = it.get("png") or b""
+            img_path = ""
+            if png:
+                img_path = os.path.join(folder, "original.png")
+                with open(img_path, "wb") as w:
+                    w.write(png)
+                    w.flush()
+                    os.fsync(w.fileno())
             note_path = os.path.join(folder, "source.txt")
             with open(note_path, "w", encoding="utf-8") as w:
-                w.write(f"来源：PDF 导入 第 {i + 1} 页\n\n{text[:50000]}")
+                w.write(f"来源：PDF 第 {it.get('page_no')} 页 多源摄入\n\n{text[:50000]}")
+            multi_images = []
+            if img_path:
+                multi_images = [{"path": img_path, "filename": "original.png", "role": "question"}]
             db.add(Question(
                 id=qid, folder_path=folder,
                 subject=subject, grade=grade,
@@ -1100,7 +1111,8 @@ async def session_import_pdf(
                 capture_mode="single_question",
                 capture_group_id=sid,
                 capture_index=len(ids),
-                raw_image_path="",
+                raw_image_path=img_path,
+                multi_images=multi_images,
             ))
             ids.append(qid)
         if not ids:
