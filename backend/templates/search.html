@@ -183,7 +183,7 @@
       setStatus('已上传 '+r.image_count+' 张图片，正在识别文字...', 'info');
       startPolling();
     }).catch(function(e){
-      setStatus('上传失败：' + (e.message || '未知错误'), 'error');
+      setStatus('上传失败：' + ($errText(e)|| '未知错误'), 'error');
     }).finally(function(){
       uploading = false;
     });
@@ -225,9 +225,9 @@
       pollErrorCount += 1;
       if(pollErrorCount >= 5){
         stopPolling();
-        setStatus('状态查询多次失败，已停止轮询：' + e.message, 'error');
+        setStatus('状态查询多次失败，已停止轮询：' + $errText(e), 'error');
       } else {
-        setStatus('状态查询失败（第' + pollErrorCount + '次，将重试）：' + e.message, 'error');
+        setStatus('状态查询失败（第' + pollErrorCount + '次，将重试）：' + $errText(e), 'error');
       }
     });
   }
@@ -263,7 +263,7 @@
       $('resultCard').style.display = 'block';
       renderResults(r.matches || [], r.confidence_threshold);
     }).catch(function(e){
-      setStatus('匹配失败：' + e.message, 'error');
+      setStatus('匹配失败：' + $errText(e), 'error');
     });
   }
 
@@ -345,7 +345,7 @@
       $toast('已加入题库并启动处理', 'ok');
       $('unmatchedCard').style.display = 'none';
     }).catch(function(e){
-      $toast('加入题库失败：' + e.message, 'error');
+      $toast('加入题库失败：' + $errText(e), 'error');
     }).finally(function(){
       addingToBank = false;
       $busy(btn, false);
@@ -359,7 +359,7 @@
     window.$API.post('/api/correction/search', {query_id: currentQueryId, matched_question_id: matchedQuestionId}).then(function(r){
       showCorrectionModal(r);
     }).catch(function(e){
-      $toast('批改失败：' + (e.message || '未知错误'), 'error');
+      $toast('批改失败：' + ($errText(e)|| '未知错误'), 'error');
     }).finally(function(){
       if(btn) $busy(btn, false);
     });
@@ -436,7 +436,7 @@
           if(go)window.location.href='/notes?note='+encodeURIComponent(id);
         });
       }
-    }).catch(function(e){$toast('存笔记失败：'+(e&&e.message||e),'error')});
+    }).catch(function(e){$toast('存笔记失败：'+(e&&$errText(e)||e),'error')});
   }
 
   window.saveOcrToNote = saveOcrToNote;

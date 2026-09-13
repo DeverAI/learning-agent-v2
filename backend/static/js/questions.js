@@ -172,7 +172,7 @@
     if(n===old) return;
     window.$API.post('/api/banks/'+encodeURIComponent(old)+'/rename?new_name='+encodeURIComponent(n),{}).then(function(r){
       $toast(r.message,'ok');loadBanks();setTimeout(loadQuestions,500);
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   async function deleteBank(){
@@ -180,7 +180,7 @@
     if(!await $confirm('删除题库「'+b+'」？题目移至默认题库。',{danger:true}))return;
     window.$API.delete('/api/banks/'+encodeURIComponent(b)).then(function(r){
       $toast(r.message,'ok');loadBanks();loadQuestions();
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   function addTag(){
@@ -189,14 +189,14 @@
     if(!t||!b)return;
     window.$API.post('/api/banks/'+encodeURIComponent(b)+'/tags/add?tag='+encodeURIComponent(t),{}).then(function(r){
       $toast(r.message,'ok');updateBankUI();document.getElementById('newTagName').value='';
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   function deleteTag(t){
     var b=document.getElementById('bankFilter').value;
     window.$API.delete('/api/banks/'+encodeURIComponent(b)+'/tags/remove?tag='+encodeURIComponent(t)).then(function(r){
       $toast(r.message,'ok');updateBankUI();
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   function setupButtons(){
@@ -337,7 +337,7 @@
           uploaded[fileIndex]=r;
           done++;
         }
-        catch(e){failed++;$toast(file.name+' 上传失败: '+e.message,'error')}
+        catch(e){failed++;$toast(file.name+' 上传失败: '+$errText(e),'error')}
       }
     }
     await Promise.all(Array.from({length:Math.min(4,fileList.length)},worker));
@@ -363,7 +363,7 @@
       st.innerHTML='<div class="alert">已暂存为同一道题（共 '+fileList.length+' 张）。可删除不需要的图或修正角色后点「开始处理」。</div>';
       renderStagedMulti();
     }).catch(function(e){
-      st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc(e.message)+'</div>';
+      st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc($errText(e))+'</div>';
     });
   }
 
@@ -390,7 +390,7 @@
     if(idx<0||idx>=stagedIds.length)return;
     var qid=stagedIds[idx];
     try{ await window.$API.delete('/api/questions/'+encodeURIComponent(qid)); }
-    catch(e){$toast('删除失败: '+e.message,'error');return}
+    catch(e){$toast('删除失败: '+$errText(e),'error');return}
     stagedIds.splice(idx,1);
     delete stagedImageUrls[qid];
     renderStagedSingle();
@@ -425,7 +425,7 @@
     var qid=stagedMulti.qid;
     var result;
     try{ result=await window.$API.delete('/api/ocr/'+encodeURIComponent(qid)+'/image/'+idx); }
-    catch(e){$toast('删除失败: '+e.message,'error');return}
+    catch(e){$toast('删除失败: '+$errText(e),'error');return}
     stagedMulti.roles=result.image_roles||[];
     stagedMulti.imageUrls=result.image_urls||[];
     if(result.deleted_question||!stagedMulti.roles.length){
@@ -450,7 +450,7 @@
     });
     stagedMulti.roles=roles;
     window.$API.put('/api/ocr/'+encodeURIComponent(stagedMulti.qid)+'/image-roles',{roles:roles}).catch(function(e){
-      $toast('角色更新失败: '+e.message,'error');
+      $toast('角色更新失败: '+$errText(e),'error');
     });
   }
 
@@ -488,7 +488,7 @@
       setTimeout(loadQuestions,1500);
       startPolling();
     }).catch(function(e){
-      $toast(e.message,'error');
+      $toast($errText(e),'error');
       $busy(btn,false);
     });
   }
@@ -624,7 +624,7 @@
       t.querySelectorAll('.btn-danger').forEach(function(b){b.addEventListener('click',function(){delQ(this.dataset.qid)})});
       t.querySelectorAll('.btn-retry').forEach(function(b){b.addEventListener('click',function(){retryQ(this.dataset.qid)})});
       t.querySelectorAll('.btn-note').forEach(function(b){b.addEventListener('click',function(){saveNoteFromQuestion(this.dataset.qid, this)})});
-    }).catch(function(e){t.innerHTML='<div class="empty">加载失败: '+$esc(e.message||'')+'</div>'});
+    }).catch(function(e){t.innerHTML='<div class="empty">加载失败: '+$esc($errText(e)||'')+'</div>'});
   }
 
   // ===== 题目 → 笔记（R23）=====
@@ -687,7 +687,7 @@
   }
 
   function retryQ(qid){
-    window.$API.post('/api/ocr/'+encodeURIComponent(qid)+'/retry').then(function(r){$toast(r.message,'ok');loadQuestions()}).catch(function(e){$toast(e.message,'error')});
+    window.$API.post('/api/ocr/'+encodeURIComponent(qid)+'/retry').then(function(r){$toast(r.message,'ok');loadQuestions()}).catch(function(e){$toast($errText(e),'error')});
   }
 
   function retryAll(){
@@ -711,7 +711,7 @@
       var idx = _sgStateKeys.indexOf(id);
       if(idx > -1) _sgStateKeys.splice(idx, 1);
       $toast('已删除','ok');loadQuestions();
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   // ===== Detail modal =====
@@ -777,7 +777,7 @@
             d.difficulty=val;
             if(currentDetail)currentDetail.difficulty=val;
             $toast('难度已保存'+(val?('：'+val):'（已清除）'),'ok');
-          }).catch(function(e){$toast('保存难度失败：'+(e&&e.message||e),'error')}).finally(function(){$busy(btn,false)});
+          }).catch(function(e){$toast('保存难度失败：'+(e&&$errText(e)||e),'error')}).finally(function(){$busy(btn,false)});
         });
       }
       var dg=(d.diagrams||[]).filter(function(x){return x});
@@ -850,7 +850,7 @@
       document.getElementById('editAnswerHtml').value=d.answer_html||'';
       document.getElementById('editScorePoints').value=d.score_points_html||'';
       switchTab('question');
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
 
   function closeDetail(){
@@ -930,7 +930,7 @@
       _sgSetLoading(false,targetId);
       if(e.name === 'AbortError') return;
       _sgRenderError(el, opts.failText, e.message, opts.retryFn, opts.retryLabel);
-      $toast(e.message||opts.failText,'error');
+      $toast($errText(e)||opts.failText,'error');
     });
   }
 
@@ -1051,7 +1051,7 @@
       if(!currentDetail || currentDetail.id !== targetId){ _sgSetLoading(false,targetId); return; }
       _sgSetLoading(false,targetId);
       if(e.name === 'AbortError') return;
-      $toast(e.message||'添加批注失败','error');
+      $toast($errText(e)||'添加批注失败','error');
     });
   }
 
@@ -1103,13 +1103,13 @@
         chat.appendChild(bd);
       }
       chat.scrollTop=chat.scrollHeight;
-    }).catch(function(e){ld.remove();var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=e.message;chat.appendChild(ed)});
+    }).catch(function(e){ld.remove();var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=$errText(e);chat.appendChild(ed)});
     if(msgText.indexOf('生成')>=0||msgText.indexOf('类题')>=0||msgText.indexOf('更难')>=0||msgText.indexOf('更简单')>=0||msgText.indexOf('换数')>=0||msgText.indexOf('标准格式')>=0){
       window.$API.post('/api/questions/'+encodeURIComponent(currentDetail.id)+'/regenerate',{instruction:msgText}).then(function(r){
         _lastRegenData=r;
         document.getElementById('chatApply').style.display='inline-flex';
         $toast('AI已重新生成，查看后点"应用"保存','ok');
-      }).catch(function(e){$toast(e.message,'error')});
+      }).catch(function(e){$toast($errText(e),'error')});
     }
   }
 
@@ -1153,7 +1153,7 @@
       if(currentDetail.audit_flags) currentDetail.audit_flags.push({type:type,reason:'用户手动标记',auto:false});
       else currentDetail.audit_flags=[{type:type,reason:'用户手动标记',auto:false}];
       var badge=document.getElementById('auditBadge');badge.style.display='inline-flex';badge.textContent=currentDetail.audit_flags.length+' 项标记';
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
   function _activeQuestionChallenge(flags){
     var candidates=(flags||[]).filter(function(f){return f&&f.challenge&&(f.type==='question_challenge_high'||f.type==='question_challenge_low')});
@@ -1213,7 +1213,7 @@
       if(currentDetail.audit_flags.length){badge.style.display='inline-flex';badge.textContent=currentDetail.audit_flags.length+' 项标记'}else{badge.style.display='none'}
       var level=r.challenge&&r.challenge.level||'none';
       $toast(level==='high'?'AI 判断题目大概率需要质疑':(level==='low'?'AI 发现低概率疑点':'独立核验未发现明显问题'),level==='high'?'error':'ok');
-    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+    }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
   }
   function toggleResolved(){
     if(!currentDetail){$toast('无当前题目','error');return}
@@ -1227,7 +1227,7 @@
       document.getElementById('btnResolve').style.background=currentDetail.is_resolved?'var(--accent)':'';
       document.getElementById('btnResolve').style.color=currentDetail.is_resolved?'var(--on-accent)':'';
       $toast(currentDetail.is_resolved?'已标记为已解决，AI不再修改':'已取消已解决标记','ok');
-    }).catch(function(e){$toast(e.message,'error')});
+    }).catch(function(e){$toast($errText(e),'error')});
   }
   function _stripHtmlAndMd(t){return t.replace(/<[^>]*>/g,'').replace(/[#*_~`>\[\]()!-]/g,'').replace(/\n{3,}/g,'\n\n').trim()}
   function _tryParseJson(t){try{var o=JSON.parse(t);if(o&&typeof o==='object')return o}catch(e){}return null}
@@ -1253,7 +1253,7 @@
       if(currentDetail.score_points_html) $md(currentDetail.score_points_html,document.getElementById('tab-score'));
       if(currentDetail.answer_html) $md(currentDetail.answer_html,document.getElementById('tab-answer'));
       $toast('已更新','ok');
-    }).catch(function(e){$toast(e.message,'error')})
+    }).catch(function(e){$toast($errText(e),'error')})
   };
   window.copyText=function(id){var el=document.getElementById(id);if(!el)return;return window.$copyText(el.value)};
   window.insertDiagramAt=function(textareaId){
@@ -1292,7 +1292,7 @@
         ts.innerHTML='<div style="font-size:16px;font-weight:bold;padding:12px;background:var(--ok-bg);color:var(--ok);border-radius:6px;margin:8px 0">标准答案</div><div id="editStandardAnswerBody"></div>';
         $md(currentDetail.standard_answer,document.getElementById('editStandardAnswerBody'));
       }else{$md('*暂无标准答案*',document.getElementById('tab-standard'))}
-    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+    }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
   };
 
   // ===== 结构梳理图 =====
@@ -1373,7 +1373,7 @@
       if(!currentDetail || currentDetail.id !== targetId){ _sgSetLoading(false,targetId); return; }
       _sgSetLoading(false,targetId);
       if(e.name === 'AbortError') return;
-      el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc(e.message||'')+'</div>';
+      el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc($errText(e)||'')+'</div>';
     });
   }
 
@@ -1643,7 +1643,7 @@
       }
       renderComparison(data);
     }).catch(function(e){
-      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc(e.message||'')+'</div>';
+      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--err)">加载失败: '+$esc($errText(e)||'')+'</div>';
     });
   }
   function generateComparison(){
@@ -1660,10 +1660,10 @@
     }).catch(function(e){
       _cmpState.loading=false;
       el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">'+
-        '<div>'+$esc(e.message||'生成失败')+'</div>'+
+        '<div>'+$esc($errText(e)||'生成失败')+'</div>'+
         '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="generateComparison()">重试</button>'+
         '</div>';
-      $toast(e.message||'生成失败','error');
+      $toast($errText(e)||'生成失败','error');
     });
   }
   function _cmpSanitizeHtml(html){

@@ -43,7 +43,7 @@
       renderAllSteps();
     }).catch(function (e) {
       $('btnPlan').disabled = false;
-      setStatus('计划生成失败：' + (e.message || '未知错误'));
+      setStatus('计划生成失败：' + ($errText(e)|| '未知错误'));
     });
   }
 
@@ -59,7 +59,7 @@
       renderAllSteps();
     }).catch(function (e) {
       $('btnPlan').disabled = false;
-      setStatus('计划生成失败：' + (e.message || '未知错误'));
+      setStatus('计划生成失败：' + ($errText(e)|| '未知错误'));
     });
   }
 

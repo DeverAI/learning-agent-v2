@@ -84,15 +84,15 @@ function markMsgRead(){
   window.$API.post('/api/system-messages/read',{}).then(function(){
     document.getElementById('msgBadge').style.display='none';
     loadMessages();
-  }).catch(function(e){if(typeof $toast==='function')$toast(e.message||'操作失败','error')});
+  }).catch(function(e){if(typeof $toast==='function')$toast($errText(e)||'操作失败','error')});
 }
 async function deleteMsg(i){
   if(!await $confirm('删除此消息？',{danger:true}))return;
-  window.$API.del('/api/system-messages/'+i).then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast(e.message||'删除失败','error')});
+  window.$API.del('/api/system-messages/'+i).then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast($errText(e)||'删除失败','error')});
 }
 async function clearAllMsgs(){
   if(!await $confirm('清空所有系统消息？',{danger:true}))return;
-  window.$API.del('/api/system-messages/all').then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast(e.message||'清空失败','error')});
+  window.$API.del('/api/system-messages/all').then(function(){loadMessages()}).catch(function(e){if(typeof $toast==='function')$toast($errText(e)||'清空失败','error')});
 }
 </script>
 
@@ -282,7 +282,7 @@ async function saveWidgetLayout(){
     document.getElementById('widgetEditBtn').textContent='编辑组件';
     renderWidgetGrid();
   }catch(e){
-    $toast(e.message||'保存失败','error');
+    $toast($errText(e)||'保存失败','error');
   }
 }
 

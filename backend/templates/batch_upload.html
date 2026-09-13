@@ -155,7 +155,7 @@ async function createSession(btn){
     document.getElementById('sessCount').textContent='已上传: 0 题';
     $toast('会话已创建，请上传题目图片');
     loadSessions();
-  }catch(e){$toast(e.message,'error')}finally{$busy(btn,false)}
+  }catch(e){$toast($errText(e),'error')}finally{$busy(btn,false)}
 }
 
 async function resumeSession(sid){
@@ -185,7 +185,7 @@ async function resumeSession(sid){
       document.getElementById('paperHint').textContent='有 '+((r.counts&&r.counts.error)||0)+' 道题需要处理，请到题库修复或重试后再组卷。';
       document.getElementById('makePaperBtn').disabled=true;
     }
-  }catch(e){$toast(e.message,'error')}
+  }catch(e){$toast($errText(e),'error')}
 }
 
 async function uploadFiles(fileList){
@@ -209,7 +209,7 @@ async function uploadFiles(fileList){
       _sessTotal=r.session_total;
       _sessionUploadMode=r.upload_mode||mode;
       document.getElementById('sessCount').textContent='已上传: '+_sessTotal+' 题';
-    }catch(e){st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">第'+(i+1)+'张失败: '+$esc(e.message)+'</div>';return}
+    }catch(e){st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">第'+(i+1)+'张失败: '+$esc($errText(e))+'</div>';return}
   }
   st.innerHTML='<div class="alert">已上传 '+_sessTotal+' 题。点击「开始处理」让 AI 批量解题。</div>';
   document.getElementById('makePaperBtn').disabled=true;document.getElementById('makePaperBtn').textContent='等待题目处理完成';
@@ -235,7 +235,7 @@ async function uploadMultiFiles(fileList){
     document.getElementById('processBtn').textContent='开始处理 ('+_sessTotal+' 题)';
     loadSessions();
   }catch(e){
-    st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc(e.message)+'</div>';
+    st.innerHTML='<div class="alert" style="color:var(--err);border-color:var(--err)">上传失败: '+$esc($errText(e))+'</div>';
   }
 }
 
@@ -289,7 +289,7 @@ async function processSession(){
     $toast(r.message+_extra, _rej.length?'warn':'ok');
     startPolling();
     loadSessions();
-  }catch(e){$toast(e.message,'error');$busy(btn,false)}
+  }catch(e){$toast($errText(e),'error');$busy(btn,false)}
 }
 
 function startPolling(){
@@ -317,7 +317,7 @@ function startPolling(){
       document.getElementById('paperHint').innerHTML='处理中 '+(c.processing||0)+' 道，已完成 '+(c.done||0)+'/'+total+'。';
       _sessionPollTimer=setTimeout(poll,3000);
     }).catch(function(e){
-      document.getElementById('paperHint').innerHTML='状态查询失败：'+$esc(e.message);
+      document.getElementById('paperHint').innerHTML='状态查询失败：'+$esc($errText(e));
       _sessionPollTimer=setTimeout(poll,5000);
     });
   }
@@ -335,10 +335,10 @@ async function makePaper(){
     document.getElementById('paperResult').innerHTML='<div class="alert"><a href="/papers/'+encodeURIComponent(r.paper_id)+'">查看试卷: '+$esc(r.title)+'</a></div>';
     $toast('组卷完成','ok');
     loadSessions();
-  }catch(e){$toast(e.message,'error');$busy(btn,false)}
+  }catch(e){$toast($errText(e),'error');$busy(btn,false)}
 }
 
-async function delSession(id){if(!await $confirm('确定删除该上传任务？',{danger:true}))return;try{await $API.del('/api/ocr/session/'+encodeURIComponent(id));$toast('已删除','ok');loadSessions()}catch(e){$toast(e.message,'error')}}
+async function delSession(id){if(!await $confirm('确定删除该上传任务？',{danger:true}))return;try{await $API.del('/api/ocr/session/'+encodeURIComponent(id));$toast('已删除','ok');loadSessions()}catch(e){$toast($errText(e),'error')}}
 
 // ===== 智能上传 =====
 var _smartFiles=[];
@@ -506,9 +506,9 @@ function setupPdfImport(){
       if(r.session_id)resumeSession(r.session_id);
       loadSessions();
     }).catch(function(e){
-      st.textContent=e.message||'导入失败';
+      st.textContent=$errText(e)||'导入失败';
       st.style.color='var(--err)';
-      $toast(e.message,'error');
+      $toast($errText(e),'error');
     }).finally(function(){
       $busy(btn,false);input.value='';
     });

@@ -538,7 +538,7 @@
         document.getElementById('ttsEngineNote').textContent=s2.tts_unavailable_reason||'';
       }).catch(function(){});
       $toast(r.message,'ok');
-    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+    }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
   }
 
   var _ttsTestAudio=null;
@@ -578,7 +578,7 @@
       await audio.play();
       st.textContent='正在播放...';
     }catch(e){
-      st.textContent='试听失败：'+(e.message||'未知错误');
+      st.textContent='试听失败：'+($errText(e)||'未知错误');
     }
   }
 
@@ -617,7 +617,7 @@
       teach_grade:document.getElementById('teachGrade').value.trim(),
       favorite_subjects:document.getElementById('userSubjects').value.split(',').map(function(s){return s.trim()}).filter(Boolean),
       style_notes:document.getElementById('userStyle').value.trim()
-    }).then(function(r){$toast(r.message,'ok');loadProfile()}).catch(function(e){$toast('保存画像失败: '+e.message,'error')}).finally(function(){$busy(btn,false)});
+    }).then(function(r){$toast(r.message,'ok');loadProfile()}).catch(function(e){$toast('保存画像失败: '+$errText(e),'error')}).finally(function(){$busy(btn,false)});
   }
 
   document.getElementById('saveApiBtn').addEventListener('click',saveSettings);
@@ -676,14 +676,14 @@
       var a=document.createElement('a');a.href=URL.createObjectURL(blob);
       a.download='study-buddy-config.json';a.click();
       $toast('配置已导出','ok');
-    }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+    }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
   }
 
   function importConfig(file){
     var btn=document.getElementById('importBtn');
     $busy(btn,true,'导入中...');
     var r=new FileReader();r.onload=function(ev){
-      try{var cfg=JSON.parse(ev.target.result);window.$API.put('/api/settings/import',cfg).then(function(r){$toast(r.message,'ok');location.reload()}).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)})}
+      try{var cfg=JSON.parse(ev.target.result);window.$API.put('/api/settings/import',cfg).then(function(r){$toast(r.message,'ok');location.reload()}).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)})}
       catch(ex){$toast('JSON格式错误','error');$busy(btn,false)}
     };r.readAsText(file);
   }

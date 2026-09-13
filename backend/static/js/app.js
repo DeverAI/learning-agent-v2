@@ -578,8 +578,8 @@ function undoLast(){
       items.shift();
       localStorage.setItem(UNDO_KEY,JSON.stringify(items));
       $toast('已撤销: '+last.action,'ok');
-    }).catch(function(e){$toast('撤销失败: '+e.message,'error')})
-  }catch(e){$toast('撤销失败: '+e.message,'error')}
+    }).catch(function(e){$toast('撤销失败: '+$errText(e),'error')})
+  }catch(e){$toast('撤销失败: '+$errText(e),'error')}
 }
 function showUndoHistory(){
   try{
@@ -596,7 +596,7 @@ function showUndoHistory(){
     var modal=document.createElement('div');modal.className='modal-overlay show';modal.style.cssText='display:flex';
     modal.innerHTML='<div class="modal" style="max-width:500px"><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()" aria-label="关闭">'+window._closeIconSvg()+'</button><h2>撤销历史</h2>'+html+'<div style="margin-top:12px"><button class="btn btn-sm" onclick="undoLast();this.closest(\'.modal-overlay\').remove()">撤销最近一次</button></div></div>';
     document.body.appendChild(modal);
-  }catch(e){$toast('显示历史失败: '+e.message,'error')}
+  }catch(e){$toast('显示历史失败: '+$errText(e),'error')}
 }
 
 // ===== 全局聊天面板 =====
@@ -663,7 +663,7 @@ function sendGlobalChat(){
       c.appendChild(nc);
     }
     c.scrollTop=c.scrollHeight;
-  }).catch(function(e){ld.remove();var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=e.message;c.appendChild(ed)});
+  }).catch(function(e){ld.remove();var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=$errText(e);c.appendChild(ed)});
 }
 
 // ===== 暗黑模式切换 =====

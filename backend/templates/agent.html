@@ -106,7 +106,7 @@ function newSession(btn){
   window.$API.post('/api/sessions',{title:'新对话'}).then(function(s){
     loadSessions();
     openSession(s.id);
-  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+  }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
 }
 
 function openSession(sid){
@@ -256,7 +256,7 @@ function sendAgentText(m,btn,opts){
     stopStepsPoll();
     ld.remove();
     showSteps([{parent:'执行',child:'请求失败',status:'error',time:''}]);
-    var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=e.message;c.appendChild(ed);
+    var ed=document.createElement('div');ed.style.cssText='color:var(--err)';ed.textContent=$errText(e);c.appendChild(ed);
     c.scrollTop=c.scrollHeight;
   }).finally(function(){
     inp.disabled=false;
@@ -279,7 +279,7 @@ async function delSession(btn){
     document.getElementById('msgCount').textContent='';
     loadSessions();
     $toast('已删除','ok');
-  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+  }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
 }
 
 async function startRename(sid, event, btn){
@@ -295,7 +295,7 @@ async function startRename(sid, event, btn){
     loadSessions();
     if(_currentId===sid) document.getElementById('currentTitle').textContent=r.title||'对话';
     $toast('已重命名','ok');
-  }).catch(function(e){$toast(e.message,'error')}).finally(function(){if(btn) $busy(btn,false)});
+  }).catch(function(e){$toast($errText(e),'error')}).finally(function(){if(btn) $busy(btn,false)});
 }
 
 function manualRenameCurrent(btn){
@@ -311,7 +311,7 @@ function autoRenameCurrent(btn){
     loadSessions();
     document.getElementById('currentTitle').textContent=r.title||'对话';
     $toast('标题已更新','ok');
-  }).catch(function(e){$toast(e.message,'error')}).finally(function(){$busy(btn,false)});
+  }).catch(function(e){$toast($errText(e),'error')}).finally(function(){$busy(btn,false)});
 }
 
 // ===== 结构化动作卡片渲染（2026-09-11 R11 新增）=====
