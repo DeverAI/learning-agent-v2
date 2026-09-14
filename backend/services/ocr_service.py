@@ -98,6 +98,16 @@ def _replace_diagram_markers(html: str, diagrams: list) -> str:
 
 logger = get_logger()
 
+# R36：SQLite 单写者。HTTP retry 一次点 4 题 + 外部脚本抢写 → audit 写锁把整题打成 error。
+# 限制同时跑的 process_image 数量（不是去掉写，是排队）。
+_PROCESS_SEM = None
+
+def _process_sem():
+    global _PROCESS_SEM
+    if _PROCESS_SEM is None:
+        _PROCESS_SEM = asyncio.Semaphore(2)
+    return _PROCESS_SEM
+
 
 def _image_mime(path: str) -> str:
     return {
@@ -172,6 +182,18 @@ class OCRService:
             return
         lock = await self._acquire_question_lock(question_id)
         async with lock:
+            async with _process_sem():
+                return await self._process_image_locked(
+                    question_id, user_hint, user_tags, user_grade,
+                    multi_images, skip_ocr, existing_ocr_text,
+                    existing_subject, existing_grade, existing_tags,
+                    search_only, search_only_final_status,
+                )
+
+    async def _process_image_locked(self, question_id, user_hint, user_tags, user_grade,
+                                    multi_images, skip_ocr, existing_ocr_text,
+                                    existing_subject, existing_grade, existing_tags,
+                                    search_only, search_only_final_status):
             logger.info("Acquired OCR lock for question %s", question_id)
             task_id = None
             # 记录识别过程中**降级**的图片（某张图 OCR 失败、被 except 跳过）。
@@ -618,7 +640,12 @@ class OCRService:
                     solver_challenge, review_challenge, *verify_challenges
                 )
                 from services.audit_service import set_question_challenge
-                await set_question_challenge(question_id, combined_challenge, auto=True)
+                # R36：审计写库失败不得把已解出的题打成 error（真发生过：database is locked）。
+                try:
+                    await set_question_challenge(question_id, combined_challenge, auto=True)
+                except Exception as _ace:
+                    logger.warning("set_question_challenge failed for %s (non-fatal): %s",
+                                   question_id, str(_ace)[:200])
                 # Save version history to question folder for night audit
                 try:
                     _v_path = os.path.join(QUESTIONS_DIR, question_id, "solution_versions.json")
@@ -1031,7 +1058,16 @@ class OCRService:
                       f"q_html预览: {q_html[:100]}, a_html预览: {a_html[:100]}")
             logger.warning("Solution verification warnings for %s: %s",
                           question_id, ", ".join(warnings))
-            raise ValueError("AI 解题结果不完整: " + ", ".join(warnings))
+            # R36：简单题（如「解方程 2x+4=0」）的题面本身就很短，
+            # 只要**答案完整**就不得整题 error——端到端真跑测实锤。
+            fatal = (
+                (not a_html)
+                or (not standard_answer)
+                or (not q_html and len(a_html) < 20)
+            )
+            if fatal:
+                raise ValueError("AI 解题结果不完整: " + ", ".join(warnings))
+            logger.warning("Non-fatal solution warnings kept for %s", question_id)
 
 
 ocr_service = OCRService()
