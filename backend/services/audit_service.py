@@ -116,6 +116,91 @@ def delete_system_message_at(index: int | None = None, *, clear_all: bool = Fals
         return True
 
 
+# ===== 问题反馈（R39）=====
+# 学生在页面上反馈「哪道题/哪张卷/哪个功能不对」，巡检循环会读未处理项。
+
+FEEDBACK_PATH = os.path.join(STORAGE_DIR, "feedback.json")
+_feedback_lock = threading.RLock()
+_feedback_load_failed = False
+
+
+def _load_feedback() -> list:
+    global _feedback_load_failed
+    with _feedback_lock:
+        try:
+            if os.path.exists(FEEDBACK_PATH):
+                with open(FEEDBACK_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                _feedback_load_failed = False
+                return data if isinstance(data, list) else []
+            _feedback_load_failed = False
+            return []
+        except (json.JSONDecodeError, IOError, OSError, TypeError) as exc:
+            logger.warning("Failed to load feedback: %s", exc)
+            _feedback_load_failed = True
+    return []
+
+
+def _save_feedback(items: list):
+    global _feedback_load_failed
+    with _feedback_lock:
+        if _feedback_load_failed:
+            logger.warning("Skip saving feedback: last load failed")
+            return
+        _atomic_write_json(FEEDBACK_PATH, items[-200:])
+
+
+def add_feedback(kind: str, message: str, page: str = "",
+                 question_id: str = "", paper_id: str = "",
+                 contact: str = "", device: str = "") -> dict:
+    """写入一条学生反馈。kind: question/paper/feature/other"""
+    kind = str(kind or "other")[:32]
+    message = str(message or "").strip()
+    if not message:
+        raise ValueError("反馈内容不能为空")
+    item = {
+        "id": gen_id() if False else f"fb_{int(_utcnow().timestamp()*1000)}",
+        "kind": kind if kind in ("question", "paper", "feature", "other") else "other",
+        "message": message[:2000],
+        "page": str(page or "")[:120],
+        "question_id": str(question_id or "")[:64],
+        "paper_id": str(paper_id or "")[:64],
+        "contact": str(contact or "")[:80],
+        "device": str(device or "")[:120],
+        "status": "open",
+        "time": _utcnow().isoformat(),
+    }
+    with _feedback_lock:
+        items = _load_feedback()
+        items.append(item)
+        _save_feedback(items)
+    add_system_message(
+        "feedback",
+        f"新反馈·{ {'question':'题目','paper':'试卷','feature':'功能','other':'其他'}.get(item['kind'],'其他') }",
+        item["message"][:300],
+        question_id=item["question_id"],
+    )
+    return item
+
+
+def list_feedback(status: str = "", limit: int = 50) -> list:
+    items = _load_feedback()
+    if status:
+        items = [x for x in items if x.get("status") == status]
+    return items[-max(1, min(limit, 200)):]
+
+
+def mark_feedback_done(fid: str) -> bool:
+    with _feedback_lock:
+        items = _load_feedback()
+        for x in items:
+            if x.get("id") == fid:
+                x["status"] = "done"
+                _save_feedback(items)
+                return True
+    return False
+
+
 # ===== 审计标记 =====
 
 FLAG_TYPES = {

@@ -4,12 +4,15 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from config import STORAGE_DIR, load_settings, _atomic_write_json
 from logger import get_logger, log_error
 
 logger = get_logger()
 router = APIRouter()
+
+_audit_run_lock = asyncio.Lock()
 
 
 @router.get("/api/system-messages")
@@ -41,8 +44,96 @@ async def delete_system_message(index: str):
     raise HTTPException(status_code=404, detail="消息索引无效")
 
 
-# --- Manual trigger for audit/rewrite ---
-_audit_run_lock = asyncio.Lock()
+# ===== 问题反馈（R39）=====
+
+class FeedbackIn(BaseModel):
+    kind: str = Field(default="other", max_length=32)
+    message: str = Field(min_length=1, max_length=2000)
+    page: str = Field(default="", max_length=120)
+    question_id: str = Field(default="", max_length=64)
+    paper_id: str = Field(default="", max_length=64)
+    contact: str = Field(default="", max_length=80)
+    device: str = Field(default="", max_length=120)
+
+
+@router.post("/api/feedback")
+async def post_feedback(req: FeedbackIn):
+    from services.audit_service import add_feedback
+    try:
+        item = add_feedback(req.kind, req.message, req.page,
+                            req.question_id, req.paper_id, req.contact, req.device)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    return {"message": "反馈已提交，谢谢！", "id": item["id"]}
+
+
+@router.get("/api/feedback")
+async def list_feedback_api(status: str = "", limit: int = 50):
+    from services.audit_service import list_feedback
+    return {"items": list_feedback(status=status, limit=limit)}
+
+
+@router.post("/api/feedback/{fid}/done")
+async def feedback_done(fid: str):
+    from services.audit_service import mark_feedback_done
+    if mark_feedback_done(fid):
+        return {"message": "已标记处理完成"}
+    raise HTTPException(404, detail="反馈不存在")
+
+
+@router.get("/api/health/patrol")
+async def health_patrol():
+    """R39：30 分钟巡检的可调用入口（也可手动点）。
+
+    检查：error 题目 / 近 24h 反馈 / 服务状态 → 写 system_messages。
+    不抛异常给调用方，巡检失败只写消息。
+    """
+    from datetime import datetime, timedelta, timezone
+    from models.database import async_session
+    from models.models import Question
+    from sqlalchemy import select, func as _f, desc
+    from services.audit_service import add_system_message, list_feedback
+
+    problems = []
+    try:
+        async with async_session() as db:
+            r = await db.execute(
+                select(_f.count()).select_from(Question).where(Question.status == "error")
+            )
+            err_n = int(r.scalar() or 0)
+            if err_n:
+                problems.append(f"题库有 {err_n} 道 error 状态题")
+            # 最近 1 小时新 error
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+            r2 = await db.execute(
+                select(Question.id, Question.error_message)
+                .where(Question.status == "error")
+                .where(Question.updated_at >= cutoff)
+                .order_by(desc(Question.updated_at)).limit(5)
+            )
+            recent = r2.all()
+            if recent:
+                problems.append("近1小时新错题：" + "；".join(
+                    f"#{qid[:8]} {(err or '')[:60]}" for qid, err in recent))
+    except Exception as e:
+        problems.append("题库巡检异常：" + str(e)[:120])
+
+    try:
+        open_fb = list_feedback(status="open", limit=20)
+        if open_fb:
+            problems.append(f"未处理反馈 {len(open_fb)} 条（最新：{open_fb[-1].get('message','')[:80]}）")
+    except Exception as e:
+        problems.append("反馈巡检异常：" + str(e)[:80])
+
+    if problems:
+        add_system_message("patrol", "30 分钟巡检发现待处理项",
+                           "\n".join(problems)[:1800])
+    return {"ok": True, "problems": problems, "checked_at": _utcnow_iso()}
+
+
+def _utcnow_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 @router.post("/api/audit/trigger")

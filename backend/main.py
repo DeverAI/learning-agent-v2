@@ -142,6 +142,28 @@ async def _night_note_patrol_loop():
             logger.warning("Nightly note patrol error: %s", str(e)[:200])
 
 
+async def _health_patrol_loop():
+    """R39：每 30 分钟巡检题目/试卷报错与未处理反馈。
+
+    - 扫题库 status=error（近 1 小时新增优先）
+    - 扫未处理反馈
+    - 有问题写 system_messages（首页消息栏）
+    - 可手动调 `GET /api/health/patrol`
+    """
+    from routers.system import health_patrol
+    while True:
+        try:
+            await asyncio.sleep(1800)  # 30 min
+            r = await health_patrol()
+            if r.get("problems"):
+                logger.info("Health patrol found %d issue(s)", len(r["problems"]))
+        except asyncio.CancelledError:
+            logger.info("Health patrol cancelled")
+            break
+        except Exception as e:
+            logger.warning("Health patrol error: %s", str(e)[:200])
+
+
 async def _collect_classic_models() -> list[str]:
     """从题库中收集经典数学模型/物理模型标签"""
     try:
@@ -219,6 +241,12 @@ async def lifespan(app: FastAPI):
         logger.info("Nightly note patrol scheduler started")
     except Exception as e:
         logger.warning("Failed to start nightly note patrol: %s", e)
+    # R39：每 30 分钟巡检题目/试卷报错与未处理反馈
+    try:
+        _start_lifespan_task(_health_patrol_loop())
+        logger.info("30-min health patrol started")
+    except Exception as e:
+        logger.warning("Failed to start health patrol: %s", e)
     try:
         yield
     finally:
@@ -544,6 +572,12 @@ async def page_lessons(request: Request):
     学生备完课想自己看一遍，只能让 Agent 念，或手打 API。
     """
     return render_template("lessons.html", page="lessons")
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+async def page_feedback(request: Request):
+    """问题反馈页（R39）：题目/试卷/功能问题，巡检循环会读。"""
+    return render_template("feedback.html", page="feedback")
 
 
 def _apk_version_from_gradle() -> str:

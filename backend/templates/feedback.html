@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:640px;margin:0 auto;padding:12px 14px 28px">
+  <h1 style="font-size:20px;margin:4px 0 12px">问题反馈</h1>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.5">
+    题目解错、试卷不对、功能不好用……写下来。系统每 30 分钟会巡检一次，有新反馈会出现在首页消息里。
+  </p>
+
+  <div class="card" style="padding:14px;margin-bottom:12px">
+    <div class="form-group"><label>类型</label>
+      <select id="fbKind">
+        <option value="question">题目（解错/乱码/缺答案）</option>
+        <option value="paper">试卷（组卷/下载不对）</option>
+        <option value="feature">功能（上传/讲课/黑板/其它）</option>
+        <option value="other">其它</option>
+      </select>
+    </div>
+    <div class="form-group"><label>详细说明</label>
+      <textarea id="fbMsg" rows="5" placeholder="例如：第 20 题答案是 9，AI 写成了别的；讲课页黑板看不到图……" style="width:100%"></textarea>
+    </div>
+    <div class="row">
+      <div class="form-group" style="flex:1"><label>关联题目 ID（可选）</label>
+        <input type="text" id="fbQid" placeholder="如 7dedd3e688e7"></div>
+      <div class="form-group" style="flex:1"><label>联系方式（可选）</label>
+        <input type="text" id="fbContact" placeholder="方便的话留 QQ/微信"></div>
+    </div>
+    <div class="form-group"><label>当前页面</label>
+      <input type="text" id="fbPage" readonly style="opacity:.7"></div>
+    <button class="btn btn-primary" id="fbSubmit" style="width:100%;min-height:48px;font-size:15px">提交反馈</button>
+    <div id="fbStatus" style="margin-top:8px;font-size:13px"></div>
+  </div>
+
+  <div class="card" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-weight:600">最近反馈</span>
+      <button class="btn btn-sm" id="fbRefresh">刷新</button>
+    </div>
+    <div id="fbList"><span class="spin"></span></div>
+  </div>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)};
+  function esc(s){return window.$esc? $esc(s): String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+  function kindLabel(k){return {question:'题目',paper:'试卷',feature:'功能',other:'其它'}[k]||k}
+
+  function loadList(){
+    var box=$('fbList'); box.innerHTML='<span class="spin"></span>';
+    window.$API.get('/api/feedback?limit=20').then(function(r){
+      var items=(r&&r.items)||[];
+      if(!items.length){box.innerHTML='<div class="empty">还没有反馈</div>';return}
+      var html='';
+      items.slice().reverse().forEach(function(x){
+        html+='<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">'
+          +'<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">'
+          +'<span class="tag">'+esc(kindLabel(x.kind))+'</span>'
+          +'<span class="tag">'+(x.status==='done'?'已处理':'待处理')+'</span>'
+          +'<span style="color:var(--text3);font-size:11px">'+esc((x.time||'').slice(0,16))+'</span>'
+          +'</div>'
+          +'<div style="word-break:break-word">'+esc(x.message)+'</div>'
+          +(x.question_id?'<div style="font-size:11px;color:var(--text3);margin-top:4px">题 <a href="/questions?qid='+encodeURIComponent(x.question_id)+'">'+esc(x.question_id)+'</a></div>':'')
+          +'</div>';
+      });
+      box.innerHTML=html;
+    }).catch(function(e){
+      box.innerHTML='<div class="empty">'+(window.$errText?$errText(e):'加载失败')+'</div>';
+    });
+  }
+
+  function submit(){
+    var msg=($('fbMsg').value||'').trim();
+    if(!msg){$('fbStatus').textContent='请先写说明';return}
+    var btn=$('fbSubmit'); if(window.$busy)$busy(btn,true,'提交中...');
+    $('fbStatus').textContent='';
+    window.$API.post('/api/feedback',{
+      kind:$('fbKind').value, message:msg,
+      page:$('fbPage').value, question_id:$('fbQid').value.trim(),
+      contact:$('fbContact').value.trim(),
+      device:(navigator.userAgent||'').slice(0,120)
+    }).then(function(r){
+      $('fbStatus').textContent=r&&r.message||'已提交';
+      $('fbStatus').style.color='var(--ok)';
+      $('fbMsg').value=''; $('fbQid').value='';
+      loadList();
+    }).catch(function(e){
+      $('fbStatus').textContent=window.$errText? $errText(e):'提交失败';
+      $('fbStatus').style.color='var(--err)';
+    }).finally(function(){ if(window.$busy)$busy(btn,false); });
+  }
+
+  document.addEventListener('DOMContentLoaded',function(){
+    $('fbPage').value=location.pathname;
+    $('fbSubmit').addEventListener('click',submit);
+    $('fbRefresh').addEventListener('click',loadList);
+    loadList();
+  });
+})();
+</script>
+{% endblock %}
