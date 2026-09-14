@@ -195,10 +195,21 @@
     enterStep(pi, si);
   }
 
-  // ===== 边看边问（R23）=====
-  // 讲解不中断：提问自动携带当前步骤的讲解内容作为上下文，走 /api/chat。
-  // 回答只落在页面上，不占用讲解朗读通道；想听回答可以再点「朗读本步」之外的
-  // 方式（本页 TTS 通道保持简单，不做回答朗读，避免与讲解队列互相打断）。
+  // ===== 边看边问（R23 / R38 修正入口）=====
+  // 原先走 /api/chat：那是**另一套旧分类器**，没有课稿/导入/补漏等工具，
+  // 学生在讲课页问「帮我备课」会得到弱回答。改为走与 Agent 页相同的
+  // /api/sessions/{sid}/chat，拿到完整工具注册表。
+  var _lecSid = '';
+  function _ensureLectureSession() {
+    if (_lecSid) return Promise.resolve(_lecSid);
+    var key = 'la_lecture_sid';
+    try { var saved = localStorage.getItem(key); if (saved) { _lecSid = saved; return Promise.resolve(saved); } } catch (e) {}
+    return window.$API.post('/api/sessions', { title: '讲课提问' }).then(function (s) {
+      _lecSid = s && s.id || '';
+      try { if (_lecSid) localStorage.setItem(key, _lecSid); } catch (e) {}
+      return _lecSid;
+    });
+  }
   function askAboutStep() {
     var inp = $('lecAskInput');
     var q = (inp && inp.value || '').trim();
@@ -223,7 +234,11 @@
     area.appendChild(ld);
     inp.value = '';
     var btn = $('btnAsk'); if (btn) btn.disabled = true;
-    window.$API.post('/api/chat', { message: ctx + '我的问题：' + q }).then(function (r) {
+    _ensureLectureSession().then(function (sid) {
+      if (!sid) throw new Error('讲课会话创建失败');
+      return window.$API.post('/api/sessions/' + encodeURIComponent(sid) + '/chat',
+        { message: ctx + '我的问题：' + q });
+    }).then(function (r) {
       ld.remove();
       var ad = document.createElement('div'); ad.className = 'agent-msg-ai';
       var md = document.createElement('div'); md.style.cssText = 'font-size:13px';
