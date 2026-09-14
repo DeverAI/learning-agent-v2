@@ -234,3 +234,19 @@ class Note(Base):
     auto_generated = Column(Boolean, default=False)  # AI自动生成
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class Feedback(Base):
+    """问题反馈（学生/桌面/安卓均可提交）。与 Err.log 分工：Err.log 是系统写日志，这里人写。"""
+    __tablename__ = "feedbacks"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    kind = Column(String, default="bug")
+    page = Column(String, default="")
+    title = Column(String, default="")
+    content = Column(Text, default="")
+    contact = Column(String, default="")
+    client = Column(String, default="web")
+    status = Column(String, default="open")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)

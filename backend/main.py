@@ -446,6 +446,8 @@ from routers.lessons import router as lessons_router
 app.include_router(lessons_router)
 from routers.smart_upload import router as smart_upload_router
 app.include_router(smart_upload_router)
+from routers.feedback import router as feedback_router
+app.include_router(feedback_router)
 if ENABLE_FOCUS_MODE:
     from routers.focus import router as focus_router
     app.include_router(focus_router)
@@ -572,6 +574,12 @@ async def page_lessons(request: Request):
     学生备完课想自己看一遍，只能让 Agent 念，或手打 API。
     """
     return render_template("lessons.html", page="lessons")
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+async def page_feedback(request: Request):
+    """问题反馈页：学生提交问题；巡检脚本定期读取。"""
+    return render_template("feedback.html", page="feedback")
 
 
 @app.get("/feedback", response_class=HTMLResponse)

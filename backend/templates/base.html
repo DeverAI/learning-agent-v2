@@ -145,6 +145,7 @@ window.addEventListener('themeChanged',function(){var n=localStorage.getItem('ac
       </div>
       <div class="menu-sub {{ 'open' if page in ('settings','diagnose','prompts','qa') else '' }}" id="adminMenu">
         <a href="/settings" class="{{ 'active' if page == 'settings' else '' }}">系统设置</a>
+        <a href="/feedback" class="{{ 'active' if page == 'feedback' else '' }}">问题反馈</a>
         <a href="/diagnose" class="{{ 'active' if page == 'diagnose' else '' }}">诊断</a>
         <a href="/prompts" class="{{ 'active' if page == 'prompts' else '' }}">Prompt</a>
         <a href="/qa" class="{{ 'active' if page == 'qa' else '' }}">Q&A</a>

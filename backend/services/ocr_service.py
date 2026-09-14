@@ -210,6 +210,19 @@ class OCRService:
                     return
                 if multi_images is None:
                     multi_images = list(getattr(q, "multi_images", None) or [])
+                # R39：文本/PDF 导入的题可能没有原图。原先 retry 会走 OCR 分支
+                # → _get_image 抛 FileNotFoundError → 整题 error。
+                # 有 ocr_text 时自动降级为 skip_ocr。
+                if not skip_ocr and not multi_images and not (q.raw_image_path and os.path.exists(q.raw_image_path)):
+                    if (q.ocr_text or "").strip():
+                        skip_ocr = True
+                        existing_ocr_text = existing_ocr_text or q.ocr_text
+                        existing_subject = existing_subject or q.subject or ""
+                        existing_grade = existing_grade or q.grade or ""
+                        existing_tags = existing_tags or list(q.knowledge_tags or [])
+                        logger.info("Question %s has no image but has ocr_text; skip_ocr", question_id)
+                    else:
+                        raise FileNotFoundError(f"Image not found for question {question_id}")
                 # 已锁定题目禁止自动重新处理，防止覆盖用户确认过的内容
                 if getattr(q, "is_resolved", False):
                     logger.info("Question %s is resolved, skip process_image", question_id)
@@ -967,12 +980,12 @@ class OCRService:
             await db.commit()
 
         if not safe_paths:
-            error = "原题图片不存在，无法生成参考 SVG"
+            # R39：无原图的文本题没有参考 SVG，这不是错误，标记 not_required
             async with async_session() as db:
                 q = await db.get(Question, question_id)
                 if q:
-                    q.reference_svg_status = "failed"
-                    q.reference_svg_error = error
+                    q.reference_svg_status = "not_required"
+                    q.reference_svg_error = "无原图（文本/PDF 文字题），跳过参考 SVG"
                     await db.commit()
             return "", ""
 
