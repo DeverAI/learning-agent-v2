@@ -195,7 +195,7 @@ async def h_add_question(c: Ctx) -> dict:
     try:
         raw = await ai_service.deepseek_chat(
             [{"role": "user", "content": gen_prompt}], temperature=0.7,
-            max_tokens=32768, scope="solve"
+            scope="solve"
         )
         gen = ai_service._extract_json(raw)
         q_html = gen.get("question_html", content)
@@ -203,8 +203,10 @@ async def h_add_question(c: Ctx) -> dict:
     except Exception as exc:
         logger.warning("Confirmed add_question generation failed: %s", exc)
         raise HTTPException(502, detail="题目生成未完整成功，未写入题库") from exc
-    if not q_html or not a_html or not answer:
-        raise HTTPException(502, detail="题面、标准答案或解析不完整，未写入题库")
+    # R37：`answer` 是用户**可选**的提示；缺省时模型应自己推导。
+    # 原实现 `if not answer` 把「用户没给答案」当成失败，整题不写库。
+    if not q_html or not a_html:
+        raise HTTPException(502, detail="题面或解析不完整，未写入题库")
     new_id = uuid.uuid4().hex[:12]
     folder = os.path.join(STORAGE_DIR, "questions", new_id)
     try:
@@ -628,7 +630,9 @@ async def h_save_image(c: Ctx) -> dict:
     try:
         async with _db_s3() as _db:
             q = _Q(id=new_id, folder_path=folder, subject=subj, grade=grd,
-                   raw_image_path=img_path, status="staged", source_type="agent_image")
+                   raw_image_path=img_path, status="staged", source_type="agent_image",
+                   multi_images=[{"path": img_path, "filename": os.path.basename(img_path),
+                                  "role": "question"}])
             _db.add(q)
             _save_task_state(desc)
             await _db.commit()
@@ -637,7 +641,10 @@ async def h_save_image(c: Ctx) -> dict:
         _shutil.rmtree(folder, ignore_errors=True)
         raise
     from services.ocr_service import ocr_service
-    _run_bg(ocr_service.process_image(new_id, "", [], grd), desc)
+    _run_bg(ocr_service.process_image(
+        new_id, "", [], grd,
+        multi_images=[{"path": img_path, "filename": os.path.basename(img_path), "role": "question"}],
+    ), desc)
     reply = f"图片已保存到题库（#{new_id[:8]}），已进入OCR处理队列。学科: {subj or '待识别'}"
     c.commit(reply)
     return c.finish(reply)
@@ -1682,7 +1689,23 @@ async def h_import_and_prep(c: Ctx) -> dict:
         "你可以在「课稿」页查看/改讲解词；也可说「读课稿」。",
     ]
     if make_paper and not paper_id:
-        lines.append("如需组卷，告诉我「确认自动组卷」，或到组卷中心操作。")
+        # R37：原先只提示「告诉我确认组卷」，实际从不组卷。现在真正调用组卷。
+        try:
+            from services.paper_service import paper_service as _ps
+            from services.config_service import config_service as _cs
+            cfg = {"subject": subject, "grade": grade, "paper_type": "custom",
+                   "question_count": min(8, max(3, len(qids)))}
+            if topic:
+                cfg["topic"] = topic
+            cid = await _cs.save_paper_config(cfg)
+            paper = await _ps.generate_paper(cfg)
+            lines.append(f"- 试卷已生成：`{paper.id}`（`{paper.title}`），可在试卷列表打开")
+            agent_tool_calls_add(c.sid, "自动组卷",
+                                 {"paper_id": paper.id, "q": cfg["question_count"]},
+                                 "已组卷", "done")
+        except Exception as _pe:
+            logger.warning("import_and_prep auto paper failed: %s", _pe)
+            lines.append(f"（自动组卷失败：{str(_pe)[:120]}；可到组卷中心手动操作）")
     reply = "\n".join(lines)
     agent_tool_calls_add(c.sid, "导入整理并备课",
                          {"topic": topic, "question_count": len(qids)},
