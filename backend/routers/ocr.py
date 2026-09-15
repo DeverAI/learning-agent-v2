@@ -1096,8 +1096,10 @@ async def session_import_pdf(
                     w.flush()
                     os.fsync(w.fileno())
             note_path = os.path.join(folder, "source.txt")
+            qnum = it.get("question_num")
+            qnum_label = f"第{qnum}题" if qnum else f"第{it.get('page_no')}页"
             with open(note_path, "w", encoding="utf-8") as w:
-                w.write(f"来源：PDF 第 {it.get('page_no')} 页 多源摄入\n\n{text[:50000]}")
+                w.write(f"来源：PDF {qnum_label}（页 {it.get('page_no')}）多源摄入\n\n{text[:50000]}")
             multi_images = []
             if img_path:
                 multi_images = [{"path": img_path, "filename": "original.png", "role": "question"}]
@@ -1113,6 +1115,8 @@ async def session_import_pdf(
                 capture_index=len(ids),
                 raw_image_path=img_path,
                 multi_images=multi_images,
+                # 题号写进 knowledge_tags 便于检索；空题号不写
+                knowledge_tags=(["PDF", f"第{qnum}题"] if qnum else ["PDF"]),
             ))
             ids.append(qid)
         if not ids:
@@ -1120,7 +1124,7 @@ async def session_import_pdf(
         db.add(UploadSession(
             id=sid, title=base_title, subject=subject, grade=grade,
             status="open", question_ids=ids,
-            notes=f"PDF 导入：{filename}，{len(reader.pages)} 页中有文字 {len(ids)} 页",
+            notes=f"PDF 导入：{filename}，{len(reader.pages)} 页拆出 {len(ids)} 题",
         ))
         await db.commit()
     except HTTPException:

@@ -159,9 +159,48 @@ def merge_sources(page_no: int, pypdf_text: str, vision_text: str) -> str:
     return ""
 
 
+def split_page_into_questions(text: str) -> list[dict]:
+    """把一页文字按题号拆成独立题。返回 [{num, text}]。
+
+    讲义/试卷常见：一页上 1. 2. 3. … 多道题。
+    按 `^\\s*(\\d{1,2})[\\.、．]` 切；找不到题号时整页当 1 题（num=None）。
+    """
+    if not text or not text.strip():
+        return []
+    import re
+    # 匹配行首或换行后的题号
+    pat = re.compile(r"(?:^|\n)\s*(\d{1,2})[\.、．]\s*", re.M)
+    matches = list(pat.finditer(text))
+    if len(matches) < 2:
+        # 只有 1 个或没有题号 → 整页当一题
+        return [{"num": None, "text": text.strip()}]
+    items = []
+    for i, m in enumerate(matches):
+        num = int(m.group(1))
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+        if not body or len(body) < 5:
+            continue
+        items.append({"num": num, "text": f"{num}. {body}"})
+    # 去重 num（同一页可能有误匹配）
+    seen = set()
+    out = []
+    for it in items:
+        if it["num"] in seen:
+            continue
+        seen.add(it["num"])
+        out.append(it)
+    return out or [{"num": None, "text": text.strip()}]
+
+
 async def ingest_pdf_pages(raw: bytes, *, use_vision: bool = True,
                            max_pages: int = MAX_PAGES) -> list[dict]:
-    """完整摄入一页 PDF。返回 [{page_no, text, png_b64, pypdf_text, vision_text, quality}]"""
+    """完整摄入 PDF。返回**按题号拆开**的列表。
+
+    每项：{page_no, question_num, text, png_b64, pypdf_text, vision_text, quality}
+    一页多题时拆多条；找不到题号则整页一条（question_num=None）。
+    """
     pypdf_pages = extract_text_pages(raw)
     pngs = render_pages_to_png(raw, max_pages=max_pages)
     n = max(len(pypdf_pages), len(pngs))
@@ -177,18 +216,24 @@ async def ingest_pdf_pages(raw: bytes, *, use_vision: bool = True,
             v_text = await vision_ocr_png(png)
         merged = merge_sources(i + 1, p_text, v_text)
         pua = sum(1 for ch in p_text if "\uf000" <= ch <= "\uf0ff")
-        items.append({
-            "page_no": i + 1,
-            "text": merged,
-            "pypdf_text": p_text,
-            "vision_text": v_text,
-            "png": png,
-            "png_b64": base64.b64encode(png).decode() if png else "",
-            "quality": {
-                "pypdf_len": len(p_text),
-                "vision_len": len(v_text),
-                "pua_count": pua,
-                "merged_len": len(merged),
-            },
-        })
+        # 拆题
+        parts = split_page_into_questions(merged)
+        png_b64 = base64.b64encode(png).decode() if png else ""
+        for part in parts:
+            items.append({
+                "page_no": i + 1,
+                "question_num": part.get("num"),
+                "text": part["text"],
+                "pypdf_text": p_text,
+                "vision_text": v_text,
+                "png": png,
+                "png_b64": png_b64,
+                "quality": {
+                    "pypdf_len": len(p_text),
+                    "vision_len": len(v_text),
+                    "pua_count": pua,
+                    "merged_len": len(merged),
+                    "split_count": len(parts),
+                },
+            })
     return items
