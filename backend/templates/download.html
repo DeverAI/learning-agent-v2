@@ -1,80 +1,75 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block content %}
 <div style="max-width:640px;margin:0 auto;padding:12px 14px 28px">
   <div style="text-align:center;margin:8px 0 18px">
-    <div style="font-size:22px;font-weight:700;letter-spacing:.5px">学习搭子</div>
-    <div style="font-size:13px;color:var(--text2);margin-top:4px">初三补漏 · 自招拔高 · 随时可学</div>
+    <div style="font-size:22px;font-weight:700;letter-spacing:.5px">瀛︿範鎼瓙</div>
+    <div style="font-size:13px;color:var(--text2);margin-top:4px">鍒濅笁琛ユ紡 路 鑷嫑鎷旈珮 路 闅忔椂鍙</div>
   </div>
 
-  <!-- 安卓 -->
+  <!-- 瀹夊崜 -->
   <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">A</div>
       <div>
-        <div style="font-weight:700">安卓 App</div>
+        <div style="font-weight:700">瀹夊崜 App</div>
         <div style="font-size:12px;color:var(--text3)">
-          {% if dl.apk.version_text %}{{ dl.apk.version_text }} · {% endif %}
-          {% if dl.apk.exists %}{{ dl.apk.size_text }}{% else %}暂无安装包{% endif %}
+          {% if dl.apk.version_text %}{{ dl.apk.version_text }} 路 {% endif %}
+          {% if dl.apk.exists %}{{ dl.apk.size_text }}{% else %}鏆傛棤瀹夎鍖厈% endif %}
         </div>
       </div>
     </div>
     <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
-      原生拍照 / 语音识别 / TTS 讲课 · 桌面小组件 · 离线可看已缓存课稿。
-      首次打开填服务器地址即可。
-    </p>
+      鍘熺敓鎷嶇収 / 璇煶璇嗗埆 / TTS 璁茶 路 妗岄潰灏忕粍浠?路 绂荤嚎鍙湅宸茬紦瀛樿绋裤€?      棣栨鎵撳紑濉湇鍔″櫒鍦板潃鍗冲彲銆?    </p>
     {% if dl.apk.exists %}
     <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
-       href="/dl/android">下载安卓 APK</a>
+       href="/dl/android">涓嬭浇瀹夊崜 APK</a>
     <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
-      {{ dl.apk.filename }} · {{ dl.apk.date_text }}
+      {{ dl.apk.filename }} 路 {{ dl.apk.date_text }}
     </div>
     {% else %}
-    <div style="color:var(--err);font-size:13px;margin-top:8px">安装包尚未上传到服务器</div>
+    <div style="color:var(--err);font-size:13px;margin-top:8px">瀹夎鍖呭皻鏈笂浼犲埌鏈嶅姟鍣?/div>
     {% endif %}
   </div>
 
-  <!-- 桌面 -->
+  <!-- 妗岄潰 -->
   <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">PC</div>
       <div>
-        <div style="font-weight:700">Windows 桌面端</div>
+        <div style="font-weight:700">Windows 妗岄潰绔?/div>
         <div style="font-size:12px;color:var(--text3)">
-          {% if dl.desktop.exists %}{{ dl.desktop.size_text }} · 源码包{% else %}暂无压缩包{% endif %}
+          {% if dl.desktop.exists %}{{ dl.desktop.size_text }} 路 婧愮爜鍖厈% else %}鏆傛棤鍘嬬缉鍖厈% endif %}
         </div>
       </div>
     </div>
     <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
-      网课旁听 · Ctrl+Alt+A 随时打断提问 · 板书卡片 · 课堂笔记可同步到网页。
-      需 Python 3.10+：解压后 <code style="font-size:12px">pip install -r requirements.txt</code>
-      再 <code style="font-size:12px">python main.py</code>。
-    </p>
+      缃戣鏃佸惉 路 Ctrl+Alt+A 闅忔椂鎵撴柇鎻愰棶 路 鏉夸功鍗＄墖 路 璇惧爞绗旇鍙悓姝ュ埌缃戦〉銆?      闇€ Python 3.10+锛氳В鍘嬪悗 <code style="font-size:12px">pip install -r requirements.txt</code>
+      鍐?<code style="font-size:12px">python main.py</code>銆?    </p>
     {% if dl.desktop.exists %}
     <a class="btn btn-primary" style="display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;margin-top:10px;font-size:15px;text-decoration:none"
-       href="/dl/desktop">下载桌面端</a>
+       href="/dl/desktop">涓嬭浇妗岄潰绔?/a>
     <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">
-      {{ dl.desktop.filename }} · {{ dl.desktop.date_text }}
+      {{ dl.desktop.filename }} 路 {{ dl.desktop.date_text }}
     </div>
     {% else %}
-    <div style="color:var(--err);font-size:13px;margin-top:8px">桌面端压缩包尚未上传到服务器</div>
+    <div style="color:var(--err);font-size:13px;margin-top:8px">妗岄潰绔帇缂╁寘灏氭湭涓婁紶鍒版湇鍔″櫒</div>
     {% endif %}
   </div>
 
-  <!-- 网页 -->
+  <!-- 缃戦〉 -->
   <div class="card" style="padding:16px;margin-bottom:12px;border-radius:14px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <div style="width:40px;height:40px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent)">W</div>
-      <div style="font-weight:700">网页版 / PWA</div>
+      <div style="font-weight:700">缃戦〉鐗?/ PWA</div>
     </div>
     <p style="margin:6px 0;font-size:13px;color:var(--text2);line-height:1.5">
-      打开本站即可用全部功能；可「添加到主屏幕」。智能上传、课稿、讲课都在侧栏。
-    </p>
+      鎵撳紑鏈珯鍗冲彲鐢ㄥ叏閮ㄥ姛鑳斤紱鍙€屾坊鍔犲埌涓诲睆骞曘€嶃€傛櫤鑳戒笂浼犮€佽绋裤€佽璇鹃兘鍦ㄤ晶鏍忋€?    </p>
     <a class="btn" style="display:flex;width:100%;min-height:44px;align-items:center;justify-content:center;margin-top:8px;text-decoration:none"
-       href="/">进入网页版</a>
+       href="/">杩涘叆缃戦〉鐗?/a>
   </div>
 
   <p style="color:var(--text3);font-size:11px;text-align:center;margin-top:16px;line-height:1.5">
-    体积与日期由服务器读磁盘真实文件生成，不会出现「页面写新版、下载到旧包」。
-  </p>
+    浣撶Н涓庢棩鏈熺敱鏈嶅姟鍣ㄨ纾佺洏鐪熷疄鏂囦欢鐢熸垚锛屼笉浼氬嚭鐜般€岄〉闈㈠啓鏂扮増銆佷笅杞藉埌鏃у寘銆嶃€?  </p>
 </div>
 {% endblock %}
+
