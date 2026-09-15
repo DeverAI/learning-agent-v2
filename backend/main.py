@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import asyncio
 import json
 from contextlib import asynccontextmanager
@@ -73,13 +73,14 @@ def render_template(name: str, **ctx) -> HTMLResponse:
 
 
 async def _night_note_patrol_loop():
-    """澶滈棿鑷姩绗旇宸￠€伙細鍦ㄩ厤缃殑鏃堕棿绐楀彛鍐呰嚜鍔ㄦ墽琛岀瑪璁板幓閲嶆暣鍚?+ 棰樺簱缁忓吀妯″瀷鏀堕泦 + 棰樺簱宸℃"""
+    """夜间自动笔记巡逻：在配置的时间窗口内自动执行笔记去重整合 + 题库经典模型收集 + 题库巡检"""
     from datetime import datetime, timedelta, timezone
     from config import load_settings
     _last_patrol_date = None
     while True:
         try:
-            await asyncio.sleep(60)  # 姣忓垎閽熸鏌ヤ竴娆?            s = load_settings()
+            await asyncio.sleep(60)  # 每分钟检查一次
+            s = load_settings()
             if not s.get("night_patrol_enabled", True):
                 continue
             now = datetime.now(timezone.utc) + timedelta(hours=8)  # UTC+8
@@ -96,22 +97,25 @@ async def _night_note_patrol_loop():
             if not in_window:
                 continue
             if _last_patrol_date == today_str:
-                continue  # 浠婂ぉ宸叉墽琛岃繃
-            # 鍏堝崰浣嶅綋澶╂棩鏈熷啀鎵ц锛氫换浣曚竴姝ュけ璐ラ兘涓嶄細鍦ㄧ獥鍙ｅ唴姣忓垎閽熼噸璇曪紝
-            # 閬垮厤瀵圭瑪璁板弽澶嶆墽琛屽叏閲?AI 鏁寸悊/鍚堝苟锛堟渶鍧忕害240娆★級銆?            _last_patrol_date = today_str
+                continue  # 今天已执行过
+            # 先占位当天日期再执行：任何一步失败都不会在窗口内每分钟重试，
+            # 避免对笔记反复执行全量 AI 整理/合并（最坏约240次）。
+            _last_patrol_date = today_str
             logger.info("Nightly note patrol: auto-organize + classic model collection started")
-            # 1. 鏀堕泦棰樺簱涓殑缁忓吀妯″瀷鏍囩锛堝涓€绾夸笁绛夎銆佹墜鎷夋墜妯″瀷绛夛級
+            # 1. 收集题库中的经典模型标签（如一线三等角、手拉手模型等）
             classic_models = await _collect_classic_models()
-            # 淇濆瓨鍒扮紦瀛樹緵绗旇鍒嗙被AI浣跨敤
+            # 保存到缓存供笔记分类AI使用
             try:
                 from services.note_service import _save_classic_models_cache
                 _save_classic_models_cache(classic_models)
             except Exception as cache_error:
                 logger.warning("Classic model cache save failed: %s", cache_error)
-            # 2. 绗旇鑷姩鏁寸悊锛堟敞鍏ョ粡鍏告ā鍨嬩笂涓嬫枃锛?            from routers.notes import _do_auto_organize
+            # 2. 笔记自动整理（注入经典模型上下文）
+            from routers.notes import _do_auto_organize
             result = await _do_auto_organize(classic_models_context=classic_models)
             logger.info("Nightly note patrol: %s", result.get("message", "done"))
-            # 鏁寸悊瀹屾垚鍚庡埛鏂扮煡璇嗘爲缂撳瓨锛岄〉闈㈡墦寮€鏃舵棤闇€鍐嶆绛夊緟 AI銆?            try:
+            # 整理完成后刷新知识树缓存，页面打开时无需再次等待 AI。
+            try:
                 from config import STORAGE_DIR
                 from models.database import async_session
                 from models.models import Note
@@ -123,11 +127,12 @@ async def _night_note_patrol_loop():
                 _atomic_write_json(os.path.join(STORAGE_DIR, "knowledge_tree.json"), tree)
             except Exception as tree_error:
                 logger.warning("Knowledge tree cache refresh failed: %s", tree_error)
-            # 3. 鍙戦€佺郴缁熸秷鎭?            try:
+            # 3. 发送系统消息
+            try:
                 from services.audit_service import add_system_message
-                model_hint = f"锛堝惈 {len(classic_models)} 涓粡鍏告ā鍨嬶級" if classic_models else ""
-                add_system_message("system", "澶滈棿绗旇鏁寸悊瀹屾垚",
-                                 f"绗旇鍘婚噸鏁村悎宸插畬鎴恵model_hint}銆?)
+                model_hint = f"（含 {len(classic_models)} 个经典模型）" if classic_models else ""
+                add_system_message("system", "夜间笔记整理完成",
+                                 f"笔记去重整合已完成{model_hint}。")
             except Exception as message_error:
                 logger.warning("Nightly note patrol message failed: %s", message_error)
         except asyncio.CancelledError:
@@ -137,36 +142,17 @@ async def _night_note_patrol_loop():
             logger.warning("Nightly note patrol error: %s", str(e)[:200])
 
 
-async def _health_patrol_loop():
-    """R39锛氭瘡 30 鍒嗛挓宸℃棰樼洰/璇曞嵎鎶ラ敊涓庢湭澶勭悊鍙嶉銆?
-    - 鎵搴?status=error锛堣繎 1 灏忔椂鏂板浼樺厛锛?    - 鎵湭澶勭悊鍙嶉
-    - 鏈夐棶棰樺啓 system_messages锛堥椤垫秷鎭爮锛?    - 鍙墜鍔ㄨ皟 `GET /api/health/patrol`
-    """
-    from routers.system import health_patrol
-    while True:
-        try:
-            await asyncio.sleep(1800)  # 30 min
-            r = await health_patrol()
-            if r.get("problems"):
-                logger.info("Health patrol found %d issue(s)", len(r["problems"]))
-        except asyncio.CancelledError:
-            logger.info("Health patrol cancelled")
-            break
-        except Exception as e:
-            logger.warning("Health patrol error: %s", str(e)[:200])
-
-
 async def _collect_classic_models() -> list[str]:
-    """浠庨搴撲腑鏀堕泦缁忓吀鏁板妯″瀷/鐗╃悊妯″瀷鏍囩"""
+    """从题库中收集经典数学模型/物理模型标签"""
     try:
         from models.database import async_session as _db_s
         from models.models import Question
         from sqlalchemy import select
         CLASSIC_KEYWORDS = [
-            "涓€绾夸笁绛夎", "鎵嬫媺鎵嬫ā鍨?, "灏嗗啗楗┈", "鑳′笉褰?, "闃挎皬鍦?,
-            "鐡滆眴鍘熺悊", "K鍨嬪浘", "绛夌Н鍙樻崲", "鎴暱琛ョ煭", "鍊嶉暱涓嚎",
-            "鏃嬭浆妯″瀷", "缈绘姌妯″瀷", "涓偣妯″瀷", "瑙掑钩鍒嗙嚎妯″瀷", "寮﹀浘",
-            "鍗婅妯″瀷", "涓夌嚎鍚堜竴", "鍗佸瓧妯″瀷", "璐归┈鐐?, "鎵樺嫆瀵?,
+            "一线三等角", "手拉手模型", "将军饮马", "胡不归", "阿氏圆",
+            "瓜豆原理", "K型图", "等积变换", "截长补短", "倍长中线",
+            "旋转模型", "翻折模型", "中点模型", "角平分线模型", "弦图",
+            "半角模型", "三线合一", "十字模型", "费马点", "托勒密",
         ]
         found = set()
         async with _db_s() as db:
@@ -202,14 +188,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log_error("lifespan", f"Failed to resume pending tasks: {e}")
         logger.warning("Failed to resume pending tasks, continuing...", exc_info=True)
-    # 鍚庡彴 Agent 浠诲姟瀵硅处锛氭湇鍔￠噸鍚悗璺戜换鍔＄殑鍗忕▼宸查殢杩涚▼娑堝け锛?    # 浣嗗簱閲岃繕鐣欑潃 running 鐨勮 -> 涓嶅璐︾殑璇濆墠绔案杩滄樉绀?杩涜涓?锛?    # 鐢ㄦ埛浼氫竴鐩寸瓑涓€涓案杩滀笉浼氱粨鏉熺殑浠诲姟銆?    try:
+    # 后台 Agent 任务对账：服务重启后跑任务的协程已随进程消失，
+    # 但库里还留着 running 的行 -> 不对账的话前端永远显示"进行中"，
+    # 用户会一直等一个永远不会结束的任务。
+    try:
         from services import background_agent as _ba
         _n = await _ba.reconcile_on_startup()
         if _n:
             logger.warning("Reconciled %d interrupted agent tasks", _n)
     except Exception as e:
         log_error("lifespan", f"Failed to reconcile agent tasks: {e}")
-    # 鏃ョ鍙兘瑙﹀彂澶栭儴 AI锛屼笉鑳介樆濉炴湇鍔″惎鍔ㄣ€?    try:
+    # 日签可能触发外部 AI，不能阻塞服务启动。
+    try:
         from services.audit_service import _generate_daily_quote
         _start_lifespan_task(_generate_daily_quote())
     except Exception as e:
@@ -229,12 +219,6 @@ async def lifespan(app: FastAPI):
         logger.info("Nightly note patrol scheduler started")
     except Exception as e:
         logger.warning("Failed to start nightly note patrol: %s", e)
-    # R39锛氭瘡 30 鍒嗛挓宸℃棰樼洰/璇曞嵎鎶ラ敊涓庢湭澶勭悊鍙嶉
-    try:
-        _start_lifespan_task(_health_patrol_loop())
-        logger.info("30-min health patrol started")
-    except Exception as e:
-        logger.warning("Failed to start health patrol: %s", e)
     try:
         yield
     finally:
@@ -246,17 +230,17 @@ async def lifespan(app: FastAPI):
         _lifespan_tasks.clear()
 
 
-app = FastAPI(title="瀛︿範鎼瓙 - 棰樼洰鏈珹gent", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="学习搭子 - 题目本Agent", version="2.0.0", lifespan=lifespan)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """鎹曡幏鏈鐞嗗紓甯稿苟鍐欏叆 Err.log锛岄伩鍏嶅墠绔敹鍒?HTML/绾枃鏈?Internal Server Error銆?""
+    """捕获未处理异常并写入 Err.log，避免前端收到 HTML/纯文本 Internal Server Error。"""
     from fastapi.responses import JSONResponse
     import traceback
     logger.exception("Unhandled exception for %s %s", request.method, request.url.path)
     trace = traceback.format_exception(type(exc), exc, exc.__traceback__)
     log_error("unhandled_exception", f"{request.method} {request.url.path}: {''.join(trace)[-4000:]}")
-    return JSONResponse(status_code=500, content={"detail": "鏈嶅姟鍣ㄥ唴閮ㄩ敊璇紝璇锋煡鐪?Err.log"})
+    return JSONResponse(status_code=500, content={"detail": "服务器内部错误，请查看 Err.log"})
 
 app.add_middleware(
     CORSMiddleware,
@@ -275,7 +259,8 @@ async def add_csp_header(request: Request, call_next):
         response.headers["Content-Security-Policy"] = CSP_HEADER
     return response
 
-# 瀵嗙爜淇濇姢涓棿浠?# 榛樿瀵嗙爜鍙€氳繃鐜鍙橀噺 LEARNING_AGENT_PASSWORD 鎴?settings.json 鐨?api_password 瑕嗙洊
+# 密码保护中间件
+# 默认密码可通过环境变量 LEARNING_AGENT_PASSWORD 或 settings.json 的 api_password 覆盖
 _DEFAULT_AUTH_PASSWORD = ""
 _AUTH_EXACT_EXEMPT = {"/api/health", "/favicon.ico"}
 
@@ -296,19 +281,19 @@ def _get_auth_password() -> str:
         pass
     return _DEFAULT_AUTH_PASSWORD
 
-# 鍏煎鏃у紩鐢細閮ㄥ垎鑴氭湰鍙兘鐩存帴瀵煎叆 _AUTH_PASSWORD
+# 兼容旧引用：部分脚本可能直接导入 _AUTH_PASSWORD
 _AUTH_PASSWORD = _DEFAULT_AUTH_PASSWORD
 
 @app.middleware("http")
 async def password_guard(request: Request, call_next):
-    """绠€鍗曞瘑鐮侀獙璇侊細API 璺緞闇€鎼哄甫瀵嗙爜锛岄〉闈㈠拰闈欐€佹枃浠惰眮鍏?""
+    """简单密码验证：API 路径需携带密码，页面和静态文件豁免"""
     path = request.url.path
-    # 璞佸厤锛氱簿纭尮閰嶇殑璺緞銆侀潤鎬佹枃浠躲€侀潪 API 椤甸潰
+    # 豁免：精确匹配的路径、静态文件、非 API 页面
     if path in _AUTH_EXACT_EXEMPT:
         return await call_next(request)
     if not path.startswith("/api/"):
         return await call_next(request)
-    # 浠?Header 鎴?Query 鍙傛暟鑾峰彇瀵嗙爜
+    # 从 Header 或 Query 参数获取密码
     auth_header = request.headers.get("authorization", "")
     token_header = request.headers.get("x-auth-token", "")
     query_pass = request.query_params.get("_auth", "")
@@ -320,13 +305,17 @@ async def password_guard(request: Request, call_next):
     elif query_pass:
         provided = query_pass.strip()
     expected = _get_auth_password()
-    # 鏈厤缃瘑鐮侊紙鐜鍙橀噺涓?settings.json 鍧囦负绌猴級= 閴存潈鏈惎鐢紝鐩存帴鏀捐銆?    # 鏃㈡湁濂戠害锛?026-09-10 淇 45 涓祴璇?401锛夛細涓棿浠舵敼涓洪€愯姹傝鍙栧悗锛?    # 娴嬭瘯妯″潡鎶?SETTINGS_FILE 閲嶅畾鍚戝埌绌轰复鏃剁洰褰曟椂 expected 鍙樼┖涓诧紝
-    # 涓庢祴璇?token 鎭掍笉绛夊鑷存暣鎵?401锛涗笖鏈厤缃椂鏈氨鎷︽埅涓嶄綇绌?header锛?    # 姝ゅ垎鏀笉鏋勬垚瀹夊叏寮卞寲銆傞厤缃簡瀵嗙爜锛堢敓浜ф湇鍔″櫒锛変粛寮哄埗鎭掑畾鏃堕棿姣旇緝銆?    import hmac as _hmac
+    # 未配置密码（环境变量与 settings.json 均为空）= 鉴权未启用，直接放行。
+    # 既有契约（2026-09-10 修复 45 个测试 401）：中间件改为逐请求读取后，
+    # 测试模块把 SETTINGS_FILE 重定向到空临时目录时 expected 变空串，
+    # 与测试 token 恒不等导致整批 401；且未配置时本就拦截不住空 header，
+    # 此分支不构成安全弱化。配置了密码（生产服务器）仍强制恒定时间比较。
+    import hmac as _hmac
     if expected and not _hmac.compare_digest(provided, expected):
         from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=401,
-            content={"detail": "璁块棶琚嫆缁濓紝璇锋彁渚涘瘑鐮?},
+            content={"detail": "访问被拒绝，请提供密码"},
             headers={"WWW-Authenticate": 'Bearer realm="learning-agent"'},
         )
     return await call_next(request)
@@ -344,11 +333,11 @@ _SAFE_QUESTION_SVG_NAME = re.compile(r"^(?:reference|diagram_\d+)\.svg$")
 
 @app.get("/storage/{file_path:path}", include_in_schema=False)
 async def serve_public_storage_file(file_path: str):
-    """鍙叕寮€灞曠ず鎵€闇€鏂囦欢锛岀姝㈡暟鎹簱銆佹棩蹇椼€佷細璇濆拰 JSON 琚潤鎬佷笅杞姐€?""
+    """只公开展示所需文件，禁止数据库、日志、会话和 JSON 被静态下载。"""
     normalized = str(file_path or "").replace("\\", "/").strip("/")
     parts = normalized.split("/") if normalized else []
     if not parts or any(part in ("", ".", "..") or not _SAFE_STORAGE_SEGMENT.fullmatch(part) for part in parts):
-        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     extension = os.path.splitext(parts[-1])[1].lower()
     allowed = False
@@ -356,38 +345,41 @@ async def serve_public_storage_file(file_path: str):
         allowed = extension in _PUBLIC_VENDOR_EXTENSIONS
     elif parts[0] == "questions" and len(parts) == 3 and _is_valid_diagram_qid(parts[1]):
         if extension == ".svg":
-            # 浠呭厑璁哥粡杩?SVG 娑堟瘨娴佺▼鍐欏叆鐨?reference.svg / diagram_N.svg
-            # 锛堢湡瀹為鐩墠鏈夌ず鎰忓浘锛屾棤闇€鏌ュ簱锛涘鐢熶綔绛斿浘鍙湁鍏夋爡鏂囦欢锛?            allowed = bool(_SAFE_QUESTION_SVG_NAME.fullmatch(parts[-1]))
+            # 仅允许经过 SVG 消毒流程写入的 reference.svg / diagram_N.svg
+            # （真实题目才有示意图，无需查库；学生作答图只有光栅文件）
+            allowed = bool(_SAFE_QUESTION_SVG_NAME.fullmatch(parts[-1]))
         else:
-            # 瀛︾敓浣滅瓟鍥?鎼滈涓存椂璁板綍涓庨搴撳師鍥惧叡鐢?questions 鐩綍锛?            # 涓存椂鏌ヨ璁板綍锛堝惈瀛︾敓鎵嬪啓浣滅瓟锛変笉寰楅€氳繃鍏紑闈欐€佽矾寰勮鍙栥€?            from models.database import async_session as _storage_db
+            # 学生作答图/搜题临时记录与题库原图共用 questions 目录：
+            # 临时查询记录（含学生手写作答）不得通过公开静态路径读取。
+            from models.database import async_session as _storage_db
             from models.models import Question as _StorageQ
             async with _storage_db() as _db:
                 _q = await _db.get(_StorageQ, parts[1])
                 if _q is not None:
                     st = getattr(_q, "source_type", None)
                     bk = getattr(_q, "bank", "") or ""
-                    # 鍚屾椂妫€鏌?source_type 涓?bank锛岄槻姝㈡棫鏁版嵁 source_type 涓虹┖浣?bank 宸叉爣璁颁负涓存椂鏌ヨ
+                    # 同时检查 source_type 与 bank，防止旧数据 source_type 为空但 bank 已标记为临时查询
                     if st in ("search_query", "correction_query") or bk in ("search_queries", "correction_queries"):
-                        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+                        raise HTTPException(status_code=404, detail="文件不存在")
             allowed = extension in _PUBLIC_RASTER_IMAGE_EXTENSIONS
     elif parts[0] == "notes" and len(parts) == 3 and _is_valid_diagram_qid(parts[1]):
         allowed = extension in _PUBLIC_RASTER_IMAGE_EXTENSIONS
     elif parts[0] == "corrections" and 3 <= len(parts) <= 5:
         allowed = extension in _PUBLIC_RASTER_IMAGE_EXTENSIONS
     if not allowed:
-        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     storage_root = os.path.realpath(STORAGE_DIR)
     disk_path = os.path.realpath(os.path.join(storage_root, *parts))
     try:
         if os.path.commonpath([storage_root, disk_path]) != storage_root:
-            raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+            raise HTTPException(status_code=404, detail="文件不存在")
     except ValueError:
-        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     if not os.path.isfile(disk_path):
-        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     resp = FileResponse(disk_path)
-    # 闃叉鏋氫妇涓庣紦瀛橈細鍏紑棰樼洰鍥炬寜绉佹湁缂撳瓨锛屼复鏃?绉佹湁鏁版嵁 0 缂撳瓨
+    # 防止枚举与缓存：公开题目图按私有缓存，临时/私有数据 0 缓存
     resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
@@ -419,36 +411,35 @@ from routers.knowledge_graph import router as kg_router
 app.include_router(kg_router)
 from routers.lecture import router as lecture_router
 app.include_router(lecture_router)
-# 鍚庡彴浠诲姟涓庤绋匡紙P3/P7锛氬弻绔帹鐞?+ 澶囪锛?from routers.agent_tasks import router as agent_tasks_router
+# 后台任务与课稿（P3/P7：双端推理 + 备课）
+from routers.agent_tasks import router as agent_tasks_router
 app.include_router(agent_tasks_router)
 from routers.lessons import router as lessons_router
 app.include_router(lessons_router)
 from routers.smart_upload import router as smart_upload_router
 app.include_router(smart_upload_router)
-from routers.feedback import router as feedback_router
-app.include_router(feedback_router)
 if ENABLE_FOCUS_MODE:
     from routers.focus import router as focus_router
     app.include_router(focus_router)
 if ENABLE_XIAOMI_TTS:
     from routers.audio import router as audio_router
     app.include_router(audio_router)
-from models import feed_models  # noqa: F401  # 鑷嫑绱犳潗姣忔棩涓€鏉?鈥?娉ㄥ唽鍒?Base.metadata 瑙﹀彂寤鸿〃
+from models import feed_models  # noqa: F401  # 自招素材每日一条 — 注册到 Base.metadata 触发建表
 app.include_router(feed.router)
 
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "瀛︿範鎼瓙Agent v2"}
+    return {"status": "ok", "service": "学习搭子Agent v2"}
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
 async def manifest():
-    """PWA manifest锛氭墜鏈烘祻瑙堝櫒鍙?娣诲姞鍒颁富灞忓箷"锛堝浘鏍?鍚嶇О/鐙珛绐楀彛褰㈡€侊級銆?""
+    """PWA manifest：手机浏览器可"添加到主屏幕"（图标/名称/独立窗口形态）。"""
     manifest_data = {
-        "name": "瀛︿範鎼瓙",
-        "short_name": "瀛︿範鎼瓙",
+        "name": "学习搭子",
+        "short_name": "学习搭子",
         "start_url": "/",
         "display": "standalone",
         "background_color": "#f5f6fa",
@@ -469,7 +460,7 @@ async def favicon():
     return Response(content=svg, media_type="image/svg+xml")
 
 
-# ===================== HTML 椤甸潰璺敱 =====================
+# ===================== HTML 页面路由 =====================
 
 @app.get("/", response_class=HTMLResponse)
 async def page_dashboard(request: Request):
@@ -494,7 +485,8 @@ async def page_paper_generate(request: Request):
     return render_template("paper_generate.html", page="generate")
 
 if ENABLE_CORRECT:
-    # 闈欐€佽矾寰?/correctCenter 蹇呴』鍦ㄤ换浣曞姩鎬?/correct/{...} 璺緞涔嬪墠娉ㄥ唽锛岄伩鍏嶈鍔ㄦ€佹鎹曡幏銆?    @app.get("/correctCenter", response_class=HTMLResponse)
+    # 静态路径 /correctCenter 必须在任何动态 /correct/{...} 路径之前注册，避免被动态段捕获。
+    @app.get("/correctCenter", response_class=HTMLResponse)
     async def page_correct_center(request: Request):
         return render_template("correct_center.html", page="correct")
 
@@ -546,26 +538,21 @@ async def page_lecture(request: Request):
 
 @app.get("/lessons", response_class=HTMLResponse)
 async def page_lessons(request: Request):
-    """璇剧鐙珛椤碉細鎻愬墠澶囪浜х墿鐨勫垪琛?/ 闃呰 / 缂栬緫 / 绂荤嚎缂撳瓨鍏ュ彛銆?
-    姝ゅ墠璇剧鍙兘缁?Agent 瀵硅瘽宸ュ叿璇诲啓 + HTTP API锛?*娌℃湁椤甸潰** 鈥斺€?    瀛︾敓澶囧畬璇炬兂鑷繁鐪嬩竴閬嶏紝鍙兘璁?Agent 蹇碉紝鎴栨墜鎵?API銆?    """
+    """课稿独立页：提前备课产物的列表 / 阅读 / 编辑 / 离线缓存入口。
+
+    此前课稿只能经 Agent 对话工具读写 + HTTP API，**没有页面** ——
+    学生备完课想自己看一遍，只能让 Agent 念，或手打 API。
+    """
     return render_template("lessons.html", page="lessons")
 
 
-@app.get("/feedback", response_class=HTMLResponse)
-async def page_feedback(request: Request):
-    """闂鍙嶉椤碉細瀛︾敓鎻愪氦闂锛涘贰妫€鑴氭湰瀹氭湡璇诲彇銆?""
-    return render_template("feedback.html", page="feedback")
-
-
-@app.get("/feedback", response_class=HTMLResponse)
-async def page_feedback(request: Request):
-    """闂鍙嶉椤碉紙R39锛夛細棰樼洰/璇曞嵎/鍔熻兘闂锛屽贰妫€寰幆浼氳銆?""
-    return render_template("feedback.html", page="feedback")
-
-
 def _apk_version_from_gradle() -> str:
-    """浠?android/app/build.gradle.kts 瑙ｆ瀽 APK 鐗堟湰锛岃繑鍥?"v1.5锛坴ersionCode 6锛? 鎴栫┖涓层€?
-    涓轰粈涔堣鏋勫缓鑴氭湰鑰屼笉鏄 APK 鏈韩锛氱函 Python 瑙ｆ瀽浜岃繘鍒?AndroidManifest 闇€瑕侀澶栦緷璧?    锛堥」鐩交閲忓寲浼樺厛锛夛紝鑰屾瀯寤鸿剼鏈槸**鐗堟湰鍙风殑鍞竴婧愬ご** 鈥斺€?鍑哄寘鏃跺仛鐨勫氨鏄畠銆?    璇讳笉鍒板氨杩斿洖绌轰覆锛屾ā鏉夸晶浼氱渷鐣ョ増鏈彞锛屼笉鏄剧ず杩囨湡鏁板瓧锛堝畞鍙笉璇达紝涔熶笉璇撮敊锛夈€?    """
+    """从 android/app/build.gradle.kts 解析 APK 版本，返回 "v1.5（versionCode 6）" 或空串。
+
+    为什么读构建脚本而不是读 APK 本身：纯 Python 解析二进制 AndroidManifest 需要额外依赖
+    （项目轻量化优先），而构建脚本是**版本号的唯一源头** —— 出包时做的就是它。
+    读不到就返回空串，模板侧会省略版本句，不显示过期数字（宁可不说，也不说错）。
+    """
     try:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(root, "android", "app", "build.gradle.kts")
@@ -574,22 +561,30 @@ def _apk_version_from_gradle() -> str:
         name_m = re.search(r'versionName\s*=\s*"([^"]+)"', text)
         code_m = re.search(r"versionCode\s*=\s*(\d+)", text)
         if name_m and code_m:
-            return f"v{name_m.group(1)}锛坴ersionCode {code_m.group(1)}锛?
+            return f"v{name_m.group(1)}（versionCode {code_m.group(1)}）"
     except Exception as exc:
-        logger.warning("璇诲彇 APK 鐗堟湰澶辫触: %s", exc)
+        logger.warning("读取 APK 版本失败: %s", exc)
     return ""
 
 
 @app.get("/download", response_class=HTMLResponse)
 async def page_download(request: Request):
-    """涓嬭浇椤点€?
-    鏂囦欢浣撶Н銆佹墦鍖呮棩鏈?*浠庣鐩樼湡瀹炶鍙?*锛岀増鏈彿**浠?android/app/build.gradle.kts 璇诲彇**锛?    涓夋牱閮戒笉鍐嶆墜鍐欍€?    璧峰洜锛?026-09-11 鍙戠幇涓嬭浇椤靛啓鐫€ "APK v1.3锛坴ersionCode 4锛?銆?    "妗岄潰绔?鎵撳寘鏃ユ湡 2026-09-10"锛岃€岀鐩樹笂鐨?APK 鍏跺疄鏄?09-05 鐨勬棫鍖?鈥斺€?    鎵嬪啓鐨勬暟瀛楀繀鐒朵細婕傜Щ锛岃€屾紓绉荤殑鍚庢灉鏄敤鎴蜂笅杞戒簡鏃у寘鍗翠互涓烘嬁鍒颁簡鏂扮増銆?    R24 琛ュ厖锛氬綋鏃跺彧鏀逛簡浣撶Н/鏃ユ湡锛?*鐗堟湰鍙蜂粛鏄墜鍐?*锛堟灉鐒跺張婕傜Щ鎴?    "v1.4锛坴ersionCode 5锛?鑰屽疄闄呭凡鏄?1.5/6锛夈€傜幇鍦ㄦ敼涓鸿В鏋愭瀯寤鸿剼鏈紝
-    鐗堟湰鍙峰彧鍙兘鏉ヨ嚜"涓嬩竴娆＄湡鐨勮鍑哄寘鐨勫湴鏂?銆?    """
+    """下载页。
+
+    文件体积、打包日期**从磁盘真实读取**，版本号**从 android/app/build.gradle.kts 读取**，
+    三样都不再手写。
+    起因：2026-09-11 发现下载页写着 "APK v1.3（versionCode 4）"、
+    "桌面端 打包日期 2026-09-10"，而磁盘上的 APK 其实是 09-05 的旧包 ——
+    手写的数字必然会漂移，而漂移的后果是用户下载了旧包却以为拿到了新版。
+    R24 补充：当时只改了体积/日期，**版本号仍是手写**（果然又漂移成
+    "v1.4（versionCode 5）"而实际已是 1.5/6）。现在改为解析构建脚本，
+    版本号只可能来自"下一次真的要出包的地方"。
+    """
     downloads_dir = os.path.join(STATIC_DIR, "downloads")
     out = {}
     apk_version = _apk_version_from_gradle()
-    for key, fname in (("apk", "瀛︿範鎼瓙-Android.apk"),
-                       ("desktop", "瀛︿範鎼瓙-妗岄潰绔?20260912.zip")):
+    for key, fname in (("apk", "学习搭子-Android.apk"),
+                       ("desktop", "学习搭子-桌面端-20260915.zip")):
         path = os.path.join(downloads_dir, fname)
         info = {"exists": os.path.exists(path), "filename": fname,
                 "size_text": "", "date_text": "", "version_text": ""}
@@ -598,7 +593,8 @@ async def page_download(request: Request):
         if info["exists"]:
             st = os.stat(path)
             mb = st.st_size / 1024 / 1024
-            # 灏忎簬 1MB 鐢?KB 鏄剧ず锛屽惁鍒?MB锛涗繚鐣欎竴浣嶅皬鏁?            info["size_text"] = (f"{st.st_size / 1024:.0f} KB" if mb < 1
+            # 小于 1MB 用 KB 显示，否则 MB；保留一位小数
+            info["size_text"] = (f"{st.st_size / 1024:.0f} KB" if mb < 1
                                  else f"{mb:.1f} MB")
             info["date_text"] = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d")
         out[key] = info
@@ -607,25 +603,30 @@ async def page_download(request: Request):
 
 @app.get("/dl/{kind}")
 async def download_client(kind: str):
-    """瀹㈡埛绔笅杞藉嚭鍙ｏ紙R33锛夈€?
-    涓轰粈涔堜笉鐢ㄨ８ /static/downloads/锛?    Windows 涓?mimetypes 甯镐笉璁よ瘑 .apk锛孲taticFiles 浼氬洖
-    application/octet-stream锛屾祻瑙堝櫒鍙﹀瓨涓?**xxx.bin**锛堢敤鎴峰疄娴嬨€屽畨瑁呭寘鏄?bin銆嶏級銆?    杩欓噷寮哄埗姝ｇ‘ MIME + RFC 5987 鏂囦欢鍚嶃€?    """
+    """客户端下载出口（R33）。
+
+    为什么不用裸 /static/downloads/：
+    Windows 上 mimetypes 常不认识 .apk，StaticFiles 会回
+    application/octet-stream，浏览器另存为 **xxx.bin**（用户实测「安装包是 bin」）。
+    这里强制正确 MIME + RFC 5987 文件名。
+    """
     from urllib.parse import quote
     mapping = {
-        "android": ("瀛︿範鎼瓙-Android.apk", "application/vnd.android.package-archive"),
-        "apk": ("瀛︿範鎼瓙-Android.apk", "application/vnd.android.package-archive"),
-        "desktop": ("瀛︿範鎼瓙-妗岄潰绔?20260912.zip", "application/zip"),
-        "windows": ("瀛︿範鎼瓙-妗岄潰绔?20260912.zip", "application/zip"),
+        "android": ("学习搭子-Android.apk", "application/vnd.android.package-archive"),
+        "apk": ("学习搭子-Android.apk", "application/vnd.android.package-archive"),
+        "desktop": ("学习搭子-桌面端-20260915.zip", "application/zip"),
+        "windows": ("学习搭子-桌面端-20260915.zip", "application/zip"),
     }
     if kind not in mapping:
-        raise HTTPException(404, "鏈煡涓嬭浇椤?)
+        raise HTTPException(404, "未知下载项")
     fname, ctype = mapping[kind]
     path = os.path.join(STATIC_DIR, "downloads", fname)
     if not os.path.isfile(path):
-        raise HTTPException(404, "瀹夎鍖呭皻鏈笂浼犲埌鏈嶅姟鍣?)
+        raise HTTPException(404, "安装包尚未上传到服务器")
     ascii_name = "LearningAgent-Android.apk" if fname.endswith(".apk") else "LearningAgent-Desktop.zip"
     resp = FileResponse(path, media_type=ctype, filename=ascii_name)
-    # 涓枃鍘熷悕缁欑幇浠ｆ祻瑙堝櫒锛坒ilename*=UTF-8''...锛?    resp.headers["Content-Disposition"] = (
+    # 中文原名给现代浏览器（filename*=UTF-8''...）
+    resp.headers["Content-Disposition"] = (
         f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
     )
     resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -667,4 +668,3 @@ if ENABLE_FOCUS_MODE:
     async def page_focus(request: Request):
         from config import ENABLE_FOCUS_BLACKBOARD
         return render_template("focus.html", page="focus", enable_blackboard=ENABLE_FOCUS_BLACKBOARD)
-
